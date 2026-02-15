@@ -1,7 +1,7 @@
 {
   "name": "tire-chaos",
-  "version": "0.1.0",
-  "description": "Physics-based tire rolling destruction game with cinematic camera system",
+  "version": "0.2.0",
+  "description": "Physics-based tire rolling destruction game with cinematic camera system - Now powered by Babylon.js!",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,14 +16,17 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,json,css}\""
   },
   "dependencies": {
-    "three": "^0.160.0",
+    "@babylonjs/core": "^6.42.0",
+    "@babylonjs/materials": "^6.42.0",
+    "@babylonjs/loaders": "^6.42.0",
+    "@babylonjs/post-processes": "^6.42.0",
+    "@babylonjs/inspector": "^6.42.0",
     "cannon-es": "^0.20.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.40.0",
     "@types/jest": "^29.5.11",
     "@types/node": "^20.10.6",
-    "@types/three": "^0.160.0",
     "@typescript-eslint/eslint-plugin": "^6.17.0",
     "@typescript-eslint/parser": "^6.17.0",
     "eslint": "^8.56.0",
@@ -41,7 +44,8 @@
     "tire",
     "destruction",
     "3d",
-    "threejs"
+    "babylonjs",
+    "webgl"
   ],
   "author": "TIRE CHAOS Team",
   "license": "MIT"
