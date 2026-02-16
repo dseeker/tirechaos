@@ -3,8 +3,19 @@ import { PhysicsManager } from '../systems/PhysicsManager';
 import { CameraDirector } from '../systems/CameraDirector';
 import { ScoringSystem } from '../systems/ScoringSystem';
 import { InputHandler } from '../systems/InputHandler';
+import { UIManager } from '../systems/UIManager';
+import { RoundManager } from '../systems/RoundManager';
+import { KeyboardManager } from '../systems/KeyboardManager';
+import { ParticleManager } from '../systems/ParticleManager';
+import { ScreenEffects } from '../systems/ScreenEffects';
+import { DestructibleObjectFactory } from '../systems/DestructibleObjectFactory';
+import { EnvironmentManager } from '../systems/EnvironmentManager';
+import { PerformanceManager } from '../systems/PerformanceManager';
+import { BrowserManager } from '../systems/BrowserManager';
+import { SoundManager } from '../systems/SoundManager';
 import { Tire } from '../entities/Tire';
-import { GameState, TireType, LevelConfig, DEFAULT_POSTPROCESSING_CONFIG } from '../types';
+import { GameState, TireType, LevelConfig, DEFAULT_POSTPROCESSING_CONFIG, CameraType } from '../types';
+import { DestructibleMaterial } from '../systems/DestructibleObjectFactory';
 
 /**
  * GameManager - Central game controller (Singleton pattern)
@@ -19,11 +30,25 @@ export class GameManager {
   public scene: BABYLON.Scene;
   public camera: BABYLON.UniversalCamera;
 
-  // Game systems
+  // Core game systems
   public physicsManager: PhysicsManager;
   public cameraDirector: CameraDirector;
   public scoringSystem: ScoringSystem;
   public inputHandler: InputHandler;
+
+  // New enhanced systems
+  public uiManager: UIManager;
+  public roundManager: RoundManager;
+  public keyboardManager: KeyboardManager;
+  public particleManager: ParticleManager;
+  public screenEffects: ScreenEffects;
+  public performanceManager: PerformanceManager;
+  public browserManager: BrowserManager;
+  public soundManager: SoundManager;
+
+  // Factories and managers
+  public destructibleFactory: DestructibleObjectFactory;
+  public environmentManager: EnvironmentManager;
 
   // Rendering pipeline
   private defaultPipeline?: BABYLON.DefaultRenderingPipeline;
@@ -72,11 +97,25 @@ export class GameManager {
     this.camera.maxZ = 1000;
     this.camera.fov = 1.2; // ~75 degrees
 
-    // Initialize game systems
+    // Initialize core game systems
     this.physicsManager = new PhysicsManager();
     this.cameraDirector = new CameraDirector(this.camera, this.scene);
     this.scoringSystem = new ScoringSystem();
     this.inputHandler = new InputHandler(this);
+
+    // Initialize enhanced systems
+    this.uiManager = new UIManager();
+    this.roundManager = new RoundManager();
+    this.keyboardManager = new KeyboardManager();
+    this.particleManager = new ParticleManager(this.scene);
+    this.screenEffects = new ScreenEffects(this.camera);
+    this.performanceManager = new PerformanceManager(this.engine);
+    this.browserManager = new BrowserManager(canvas);
+    this.soundManager = new SoundManager();
+
+    // Initialize factories
+    this.destructibleFactory = new DestructibleObjectFactory(this.scene, this.physicsManager);
+    this.environmentManager = new EnvironmentManager(this.scene);
 
     // Initialize game state
     this.gameState = {
@@ -208,11 +247,49 @@ export class GameManager {
     // Handle window resize
     window.addEventListener('resize', this.onWindowResize.bind(this));
 
-    // UI button handlers
+    // UI button handlers (old buttons - will be replaced by UIManager)
     const resetBtn = document.getElementById('reset-btn');
     if (resetBtn) {
       resetBtn.addEventListener('click', () => this.resetLevel());
     }
+
+    // Setup keyboard shortcuts
+    this.keyboardManager.setupDefaultShortcuts({
+      onPause: () => this.togglePause(),
+      onReset: () => this.resetLevel(),
+      onCycleCamera: () => this.cycleCamera(),
+      onSelectCamera: (cameraType) => this.cameraDirector.switchCamera(cameraType),
+      onToggleFPS: () => this.toggleFPSDisplay(),
+      onToggleFullscreen: () => this.browserManager.toggleFullscreen(),
+      onQuickLaunch: () => this.launchTire(0.8, 45),
+    });
+
+    // UI Manager event listeners
+    window.addEventListener('start-game', () => this.startNewGame());
+    window.addEventListener('resume-game', () => this.resume());
+    window.addEventListener('restart-game', () => this.resetLevel());
+    window.addEventListener('quit-to-menu', () => this.returnToMenu());
+    window.addEventListener('next-round', () => this.roundManager.nextRound());
+    window.addEventListener('play-again', () => this.startNewGame());
+    window.addEventListener('main-menu', () => this.returnToMenu());
+
+    // Round Manager events
+    window.addEventListener('round-complete', (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const { roundData, isLastRound } = customEvent.detail;
+      this.uiManager.showRoundEnd(roundData, isLastRound);
+      this.pause();
+    });
+
+    window.addEventListener('game-over', (e: Event) => {
+      const customEvent = e as CustomEvent;
+      this.showGameOver(customEvent.detail);
+    });
+
+    window.addEventListener('game-victory', (e: Event) => {
+      const customEvent = e as CustomEvent;
+      this.showVictory(customEvent.detail);
+    });
 
     // Optimize engine on window blur
     window.addEventListener('blur', () => {
@@ -237,23 +314,29 @@ export class GameManager {
   public async init(): Promise<void> {
     console.log('🎮 Initializing TIRE CHAOS with Babylon.js...');
 
-    // Create test level
+    // Setup performance settings
+    this.performanceManager.setQualityLevel('high');
+    this.performanceManager.attachPipeline(this.defaultPipeline!);
+
+    // Setup browser features
+    this.browserManager.applyGameRestrictions();
+
+    // Create test level (but don't start game yet)
     this.createTestLevel();
 
-    // Hide loading, show UI
+    // Hide loading screen, show main menu
     const loading = document.getElementById('loading');
-    const hud = document.getElementById('hud');
-    const controls = document.getElementById('controls');
-
     if (loading) loading.classList.add('hidden');
-    if (hud) hud.classList.remove('hidden');
-    if (controls) controls.classList.remove('hidden');
+
+    // Show main menu
+    this.uiManager.showMainMenu();
 
     // Start render loop
     this.start();
 
     console.log('✅ Game initialized successfully with Babylon.js!');
     console.log('🎨 PBR materials, advanced lighting, and post-processing active!');
+    console.log('⌨️  Press SPACE or click START GAME to begin!');
   }
 
   /**
@@ -282,63 +365,78 @@ export class GameManager {
     // Add to physics
     this.physicsManager.addGroundPlane(ground);
 
-    // Create some destructible objects
+    // Create destructible objects using factory
     this.createDestructibleObjects();
 
-    console.log('🏔️ Test level created with PBR materials');
+    // Add environment props
+    this.environmentManager.spawnLevelProps();
+
+    console.log('🏔️ Test level created with PBR materials, destructibles, and environment');
   }
 
   /**
-   * Create destructible objects with PBR materials
+   * Create destructible objects using factory
    */
   private createDestructibleObjects(): void {
-    const colors = [
-      BABYLON.Color3.FromHexString('#ff6b35'), // Orange
-      BABYLON.Color3.FromHexString('#00d9ff'), // Cyan
-      BABYLON.Color3.FromHexString('#b7ce63'), // Lime
+    // Create variety of destructible objects
+    const materials = [
+      DestructibleMaterial.WOOD,
+      DestructibleMaterial.METAL,
+      DestructibleMaterial.GLASS,
+      DestructibleMaterial.STONE,
+      DestructibleMaterial.RUBBER,
+      DestructibleMaterial.CRYSTAL,
     ];
 
-    for (let i = 0; i < 10; i++) {
-      const box = BABYLON.MeshBuilder.CreateBox(
-        `box_${i}`,
-        { size: 1 },
-        this.scene
+    // Create clusters of objects
+    for (let i = 0; i < 3; i++) {
+      const clusterX = (i - 1) * 8;
+      const clusterZ = (Math.random() - 0.5) * 6;
+      const origin = new BABYLON.Vector3(clusterX, -3, clusterZ);
+
+      // Create a cluster with random material
+      const material = materials[Math.floor(Math.random() * materials.length)];
+      const objects = this.destructibleFactory.createCluster(
+        5,
+        origin,
+        3,
+        { material }
       );
 
-      // Position objects down the hill
-      box.position = new BABYLON.Vector3(
-        (Math.random() - 0.5) * 10,
-        -3 + Math.random() * 2,
-        (Math.random() - 0.5) * 8
-      );
-
-      // PBR material
-      const material = new BABYLON.PBRMetallicRoughnessMaterial(`boxMat_${i}`, this.scene);
-      material.baseColor = colors[i % colors.length];
-      material.metallic = 0.1;
-      material.roughness = 0.7;
-      box.material = material;
-
-      // Enable shadows
-      box.receiveShadows = true;
-      if (this.shadowGenerator) {
-        this.shadowGenerator.addShadowCaster(box);
-      }
-
-      this.physicsManager.addDestructibleObject(box, {
-        mass: 5,
-        health: 100,
-        points: 50,
+      // Add shadows
+      objects.forEach((obj) => {
+        if (this.shadowGenerator) {
+          this.shadowGenerator.addShadowCaster(obj.mesh);
+        }
       });
     }
+
+    // Add a few showcase objects (one of each material)
+    const showcaseOrigin = new BABYLON.Vector3(0, -2, -8);
+    const showcaseObjects = this.destructibleFactory.createShowcase(
+      showcaseOrigin,
+      DestructibleMaterial.METAL,
+      2
+    );
+
+    showcaseObjects.forEach((obj) => {
+      if (this.shadowGenerator) {
+        this.shadowGenerator.addShadowCaster(obj.mesh);
+      }
+    });
+
+    console.log('🎯 Destructible objects created with factory');
   }
 
   /**
    * Launch a tire with given power and angle
    */
   public launchTire(power: number, angle: number, tireType: TireType = TireType.STANDARD): void {
-    if (this.gameState.tiresRemaining <= 0) {
+    // Check round manager for tire availability
+    const currentRound = this.roundManager.getCurrentRound();
+    if (currentRound && !this.roundManager.useTire()) {
       console.log('No tires remaining!');
+      this.uiManager.showMessage('No tires left!', 2000);
       return;
     }
 
@@ -364,13 +462,21 @@ export class GameManager {
       this.shadowGenerator.addShadowCaster(tire.mesh);
     }
 
+    // Create smoke trail
+    const smokeSystem = this.particleManager.createTireSmoke(tire.mesh.position);
+
     this.activeTires.push(tire);
-    this.gameState.tiresRemaining--;
 
     // Update camera to follow tire
     this.cameraDirector.setFollowTarget(tire.mesh);
 
-    this.updateUI();
+    // Screen shake on launch
+    this.screenEffects.shake(0.2, 150);
+
+    // Play sound
+    this.soundManager.playSFX('tire_launch', 0.7);
+
+    console.log('🎯 Tire launched!');
   }
 
   /**
@@ -387,9 +493,9 @@ export class GameManager {
   }
 
   /**
-   * Add score with combo multiplier
+   * Add score with combo multiplier and effects
    */
-  public addScore(points: number, isCombo: boolean = false): void {
+  public addScore(points: number, isCombo: boolean = false, position?: BABYLON.Vector3): void {
     if (isCombo) {
       this.gameState.combo++;
     } else {
@@ -401,6 +507,41 @@ export class GameManager {
 
     this.gameState.score += finalPoints;
     this.scoringSystem.addScore(finalPoints);
+    this.gameState.objectsDestroyed++;
+
+    // Add to round manager
+    this.roundManager.addScore(finalPoints);
+
+    // Visual effects
+    if (position) {
+      // Explosion particles
+      this.particleManager.createExplosion(position, 1.0);
+
+      // Debris particles (random color based on object)
+      const debrisColor = new BABYLON.Color3(
+        Math.random() * 0.5 + 0.5,
+        Math.random() * 0.5 + 0.5,
+        Math.random() * 0.5 + 0.5
+      );
+      this.particleManager.createDebris(position, debrisColor);
+    }
+
+    // Combo effects
+    if (this.gameState.combo >= 2) {
+      if (position) {
+        this.particleManager.createComboCelebration(position, this.gameState.combo);
+      }
+      this.screenEffects.comboEffect(this.gameState.combo);
+      this.soundManager.playSFX('combo_hit');
+      this.uiManager.showMessage(`${this.gameState.combo}x COMBO!`, 1500);
+    }
+
+    // Screen shake based on impact
+    const shakeIntensity = Math.min(points / 100, 1.0);
+    this.screenEffects.shake(shakeIntensity * 0.5, 200);
+
+    // Play destruction sound
+    this.soundManager.playSFX('object_destroyed', 0.5);
 
     this.updateUI();
   }
@@ -451,12 +592,22 @@ export class GameManager {
    */
   private render(): void {
     if (this.gameState.isPaused) {
+      // Still render the scene even when paused for menu backgrounds
+      this.scene.render();
       return;
     }
 
     const currentTime = performance.now();
     const deltaTime = (currentTime - this.lastTime) / 1000;
     this.lastTime = currentTime;
+
+    // Update performance manager
+    this.performanceManager.update();
+
+    // Skip frame if needed for FPS limiting
+    if (this.performanceManager.shouldSkipFrame()) {
+      return;
+    }
 
     // Update FPS counter
     this.frameCount++;
@@ -472,6 +623,23 @@ export class GameManager {
     this.activeTires.forEach((tire) => {
       tire.update(deltaTime);
     });
+
+    // Update UI
+    const currentRound = this.roundManager.getCurrentRound();
+    if (currentRound) {
+      this.uiManager.updateScore(this.roundManager.getTotalScore());
+      this.uiManager.updateRound(currentRound.roundNumber, this.roundManager.getTotalRounds());
+      this.uiManager.updateTires(currentRound.tiresAvailable);
+      this.uiManager.updateTime(currentRound.timeRemaining);
+      this.uiManager.updateFPS(this.performanceManager.getFPS());
+
+      // Update combo display
+      const combo = this.scoringSystem.getComboCount();
+      const multiplier = this.scoringSystem.getComboMultiplier();
+      if (combo > 1) {
+        this.uiManager.updateCombo(combo, multiplier);
+      }
+    }
 
     // Render scene
     this.scene.render();
@@ -497,6 +665,177 @@ export class GameManager {
    */
   public resume(): void {
     this.gameState.isPaused = false;
+  }
+
+  /**
+   * Toggle pause state
+   */
+  private togglePause(): void {
+    if (this.gameState.isPaused) {
+      this.resume();
+      this.uiManager.hidePauseMenu();
+    } else {
+      this.pause();
+      this.uiManager.showPauseMenu();
+    }
+  }
+
+  /**
+   * Cycle through camera angles
+   */
+  private cycleCamera(): void {
+    const cameras = [
+      CameraType.LAUNCH,
+      CameraType.DRONE,
+      CameraType.GOPRO,
+      CameraType.OVERHEAD,
+      CameraType.HERO_TIRE,
+    ];
+    const currentIndex = cameras.indexOf(this.cameraDirector.getCurrentCameraType());
+    const nextIndex = (currentIndex + 1) % cameras.length;
+    const nextCamera = cameras[nextIndex];
+    this.cameraDirector.switchCamera(nextCamera);
+
+    // Show camera name briefly
+    const cameraNames: Record<CameraType, string> = {
+      [CameraType.LAUNCH]: 'Launch View',
+      [CameraType.DRONE]: 'Drone View',
+      [CameraType.GOPRO]: 'GoPro View',
+      [CameraType.OVERHEAD]: 'Overhead View',
+      [CameraType.HERO_TIRE]: 'Hero Tire View',
+      [CameraType.REPLAY]: 'Replay View',
+    };
+    this.uiManager.showMessage(cameraNames[nextCamera], 1500);
+  }
+
+  /**
+   * Toggle FPS display
+   */
+  private toggleFPSDisplay(): void {
+    const fpsElement = document.getElementById('fps-display');
+    if (fpsElement) {
+      fpsElement.style.display = fpsElement.style.display === 'none' ? 'block' : 'none';
+    }
+  }
+
+  /**
+   * Start a new game
+   */
+  private startNewGame(): void {
+    console.log('🎮 Starting new game...');
+
+    // Clear existing game state
+    this.activeTires.forEach((tire) => tire.destroy());
+    this.activeTires = [];
+    this.clearScene();
+
+    // Create level
+    this.createTestLevel();
+
+    // Start round manager
+    this.roundManager.startNewGame();
+
+    // Show game HUD
+    this.uiManager.showGameHUD();
+
+    // Initialize sound
+    this.soundManager.init().catch(err => console.warn('Sound init failed:', err));
+    this.soundManager.playMusic('game_music', true);
+
+    // Resume game
+    this.resume();
+
+    console.log('✅ Game started!');
+  }
+
+  /**
+   * Return to main menu
+   */
+  private returnToMenu(): void {
+    console.log('🏠 Returning to main menu...');
+
+    // Stop music
+    this.soundManager.stopMusic(1000);
+
+    // Clear game state
+    this.activeTires.forEach((tire) => tire.destroy());
+    this.activeTires = [];
+    this.clearScene();
+
+    // Reset managers
+    this.roundManager = new RoundManager();
+    this.particleManager.stopAll();
+
+    // Create initial level (for background)
+    this.createTestLevel();
+
+    // Show main menu
+    this.uiManager.showMainMenu();
+
+    // Pause game
+    this.pause();
+  }
+
+  /**
+   * Show game over screen
+   */
+  private showGameOver(detail: any): void {
+    console.log('💀 Game Over!');
+
+    // Stop music
+    this.soundManager.stopMusic(500);
+    this.soundManager.playSFX('game_over');
+
+    // Show screen effects
+    this.screenEffects.gameOver();
+
+    // Get stats
+    const stats = this.scoringSystem.getStatistics();
+    const isNewHighScore = detail.totalScore > this.scoringSystem.getHighScore();
+
+    // Show UI
+    this.uiManager.showGameOver(
+      detail.totalScore || 0,
+      detail.roundsCompleted || 0,
+      detail.objectsDestroyed || 0,
+      stats.maxCombo || 0,
+      this.scoringSystem.getHighScore(),
+      isNewHighScore
+    );
+
+    // Pause game
+    this.pause();
+  }
+
+  /**
+   * Show victory screen
+   */
+  private showVictory(detail: any): void {
+    console.log('🏆 Victory!');
+
+    // Stop music
+    this.soundManager.stopMusic(500);
+    this.soundManager.playSFX('round_complete');
+
+    // Show screen effects
+    this.screenEffects.victory();
+
+    // Get stats
+    const stats = this.scoringSystem.getStatistics();
+    const isNewHighScore = detail.totalScore > this.scoringSystem.getHighScore();
+
+    // Show UI (victory uses same screen, just different title)
+    this.uiManager.showGameOver(
+      detail.totalScore || 0,
+      detail.roundsCompleted || 5, // Victory means all 5 rounds complete
+      detail.objectsDestroyed || 0,
+      stats.maxCombo || 0,
+      this.scoringSystem.getHighScore(),
+      isNewHighScore
+    );
+
+    // Pause game
+    this.pause();
   }
 
   /**
