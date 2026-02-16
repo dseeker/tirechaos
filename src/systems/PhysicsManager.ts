@@ -1,17 +1,18 @@
 import * as CANNON from 'cannon-es';
-import * as THREE from 'three';
+import * as BABYLON from '@babylonjs/core';
 import { DEFAULT_PHYSICS_CONFIG, PhysicsConfig } from '../types';
 
 /**
  * PhysicsManager - Handles all physics simulation using Cannon.js
+ * Now compatible with Babylon.js meshes
  */
 export class PhysicsManager {
   public world: CANNON.World;
   private config: PhysicsConfig;
-  private bodies: Map<THREE.Mesh, CANNON.Body> = new Map();
+  private bodies: Map<BABYLON.Mesh, CANNON.Body> = new Map();
   private destructibleObjects: Map<
     CANNON.Body,
-    { mesh: THREE.Mesh; health: number; points: number }
+    { mesh: BABYLON.Mesh; health: number; points: number }
   > = new Map();
 
   constructor(config: PhysicsConfig = DEFAULT_PHYSICS_CONFIG) {
@@ -67,12 +68,16 @@ export class PhysicsManager {
   /**
    * Add a ground plane to the physics world
    */
-  public addGroundPlane(mesh: THREE.Mesh): CANNON.Body {
+  public addGroundPlane(mesh: BABYLON.Mesh): CANNON.Body {
+    // Get dimensions from bounding box
+    const boundingInfo = mesh.getBoundingInfo();
+    const size = boundingInfo.boundingBox.extendSize;
+
     const shape = new CANNON.Box(
       new CANNON.Vec3(
-        (mesh.geometry as THREE.BoxGeometry).parameters.width / 2,
-        (mesh.geometry as THREE.BoxGeometry).parameters.height / 2,
-        (mesh.geometry as THREE.BoxGeometry).parameters.depth / 2,
+        size.x * Math.abs(mesh.scaling.x),
+        size.y * Math.abs(mesh.scaling.y),
+        size.z * Math.abs(mesh.scaling.z),
       ),
     );
 
@@ -82,9 +87,14 @@ export class PhysicsManager {
       material: new CANNON.Material('ground'),
     });
 
-    // Match mesh position and rotation
-    body.position.copy(mesh.position as any);
-    body.quaternion.copy(mesh.quaternion as any);
+    // Match mesh position and rotation (Babylon uses same format)
+    body.position.set(mesh.position.x, mesh.position.y, mesh.position.z);
+    body.quaternion.set(
+      mesh.rotationQuaternion?.x || 0,
+      mesh.rotationQuaternion?.y || 0,
+      mesh.rotationQuaternion?.z || 0,
+      mesh.rotationQuaternion?.w || 1,
+    );
 
     this.world.addBody(body);
     this.bodies.set(mesh, body);
@@ -96,15 +106,18 @@ export class PhysicsManager {
    * Add a destructible object to physics world
    */
   public addDestructibleObject(
-    mesh: THREE.Mesh,
+    mesh: BABYLON.Mesh,
     config: { mass: number; health: number; points: number },
   ): CANNON.Body {
-    const geometry = mesh.geometry as THREE.BoxGeometry;
+    // Get dimensions from bounding box
+    const boundingInfo = mesh.getBoundingInfo();
+    const size = boundingInfo.boundingBox.extendSize;
+
     const shape = new CANNON.Box(
       new CANNON.Vec3(
-        geometry.parameters.width / 2,
-        geometry.parameters.height / 2,
-        geometry.parameters.depth / 2,
+        size.x * Math.abs(mesh.scaling.x),
+        size.y * Math.abs(mesh.scaling.y),
+        size.z * Math.abs(mesh.scaling.z),
       ),
     );
 
@@ -115,8 +128,13 @@ export class PhysicsManager {
       angularDamping: 0.3,
     });
 
-    body.position.copy(mesh.position as any);
-    body.quaternion.copy(mesh.quaternion as any);
+    body.position.set(mesh.position.x, mesh.position.y, mesh.position.z);
+    body.quaternion.set(
+      mesh.rotationQuaternion?.x || 0,
+      mesh.rotationQuaternion?.y || 0,
+      mesh.rotationQuaternion?.z || 0,
+      mesh.rotationQuaternion?.w || 1,
+    );
 
     this.world.addBody(body);
     this.bodies.set(mesh, body);
@@ -133,7 +151,7 @@ export class PhysicsManager {
    * Add a tire body to physics world
    */
   public addTireBody(
-    mesh: THREE.Mesh,
+    mesh: BABYLON.Mesh,
     radius: number,
     width: number,
     mass: number,
@@ -155,8 +173,13 @@ export class PhysicsManager {
     quaternion.setFromAxisAngle(new CANNON.Vec3(0, 0, 1), Math.PI / 2);
     shape.transformAllPoints(new CANNON.Vec3(), quaternion);
 
-    body.position.copy(mesh.position as any);
-    body.quaternion.copy(mesh.quaternion as any);
+    body.position.set(mesh.position.x, mesh.position.y, mesh.position.z);
+    body.quaternion.set(
+      mesh.rotationQuaternion?.x || 0,
+      mesh.rotationQuaternion?.y || 0,
+      mesh.rotationQuaternion?.z || 0,
+      mesh.rotationQuaternion?.w || 1,
+    );
 
     this.world.addBody(body);
     this.bodies.set(mesh, body);
@@ -196,7 +219,7 @@ export class PhysicsManager {
   /**
    * Destroy an object (remove from physics and scene)
    */
-  private destroyObject(body: CANNON.Body, mesh: THREE.Mesh): void {
+  private destroyObject(body: CANNON.Body, mesh: BABYLON.Mesh): void {
     const obj = this.destructibleObjects.get(body);
     if (!obj) return;
 
@@ -212,7 +235,7 @@ export class PhysicsManager {
     this.destructibleObjects.delete(body);
 
     // Remove from scene (GameManager handles this)
-    mesh.visible = false;
+    mesh.setEnabled(false);
 
     console.log(`💥 Object destroyed! +${obj.points} points`);
   }
@@ -220,7 +243,7 @@ export class PhysicsManager {
   /**
    * Get physics body for a mesh
    */
-  public getBody(mesh: THREE.Mesh): CANNON.Body | undefined {
+  public getBody(mesh: BABYLON.Mesh): CANNON.Body | undefined {
     return this.bodies.get(mesh);
   }
 
@@ -230,8 +253,18 @@ export class PhysicsManager {
   private syncBodies(): void {
     this.bodies.forEach((body, mesh) => {
       // Copy position from physics to mesh
-      mesh.position.copy(body.position as any);
-      mesh.quaternion.copy(body.quaternion as any);
+      mesh.position.set(body.position.x, body.position.y, body.position.z);
+
+      // Babylon uses rotationQuaternion for physics sync
+      if (!mesh.rotationQuaternion) {
+        mesh.rotationQuaternion = new BABYLON.Quaternion();
+      }
+      mesh.rotationQuaternion.set(
+        body.quaternion.x,
+        body.quaternion.y,
+        body.quaternion.z,
+        body.quaternion.w,
+      );
     });
   }
 
@@ -269,14 +302,14 @@ export class PhysicsManager {
   /**
    * Get all destructible objects
    */
-  public getDestructibleObjects(): Array<{ mesh: THREE.Mesh; health: number; points: number }> {
+  public getDestructibleObjects(): Array<{ mesh: BABYLON.Mesh; health: number; points: number }> {
     return Array.from(this.destructibleObjects.values());
   }
 
   /**
    * Apply force to a body
    */
-  public applyForce(mesh: THREE.Mesh, force: CANNON.Vec3, worldPoint?: CANNON.Vec3): void {
+  public applyForce(mesh: BABYLON.Mesh, force: CANNON.Vec3, worldPoint?: CANNON.Vec3): void {
     const body = this.bodies.get(mesh);
     if (body) {
       body.applyForce(force, worldPoint || body.position);
@@ -286,7 +319,7 @@ export class PhysicsManager {
   /**
    * Apply impulse to a body
    */
-  public applyImpulse(mesh: THREE.Mesh, impulse: CANNON.Vec3, worldPoint?: CANNON.Vec3): void {
+  public applyImpulse(mesh: BABYLON.Mesh, impulse: CANNON.Vec3, worldPoint?: CANNON.Vec3): void {
     const body = this.bodies.get(mesh);
     if (body) {
       body.applyImpulse(impulse, worldPoint || body.position);
@@ -296,7 +329,7 @@ export class PhysicsManager {
   /**
    * Set velocity of a body
    */
-  public setVelocity(mesh: THREE.Mesh, velocity: CANNON.Vec3): void {
+  public setVelocity(mesh: BABYLON.Mesh, velocity: CANNON.Vec3): void {
     const body = this.bodies.get(mesh);
     if (body) {
       body.velocity.copy(velocity);

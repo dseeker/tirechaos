@@ -1,19 +1,31 @@
-import * as THREE from 'three';
+import * as BABYLON from '@babylonjs/core';
 import { Tire } from '../Tire';
 import { TireType } from '../../types';
 import { PhysicsManager } from '../../systems/PhysicsManager';
 
+// Mock Babylon.js engine and scene
+class MockEngine {
+  getRenderingCanvas() {
+    return document.createElement('canvas');
+  }
+  dispose() {}
+}
+
 describe('Tire', () => {
-  let scene: THREE.Scene;
+  let scene: BABYLON.Scene;
   let physicsManager: PhysicsManager;
+  let engine: any;
 
   beforeEach(() => {
-    scene = new THREE.Scene();
+    // Create mock engine and scene
+    engine = new MockEngine() as any;
+    scene = new BABYLON.Scene(engine);
     physicsManager = new PhysicsManager();
   });
 
   afterEach(() => {
     physicsManager.clear();
+    scene.dispose();
   });
 
   describe('Tire Creation', () => {
@@ -45,7 +57,8 @@ describe('Tire', () => {
     it('should add tire to scene', () => {
       const tire = new Tire(TireType.STANDARD, scene, physicsManager);
 
-      expect(scene.children).toContain(tire.mesh);
+      // Babylon meshes are automatically added to scene.meshes
+      expect(scene.meshes).toContain(tire.mesh);
     });
 
     it('should have correct physics properties', () => {
@@ -83,7 +96,7 @@ describe('Tire', () => {
   describe('Tire Position', () => {
     it('should set position correctly', () => {
       const tire = new Tire(TireType.STANDARD, scene, physicsManager);
-      const position = new THREE.Vector3(10, 5, -3);
+      const position = new BABYLON.Vector3(10, 5, -3);
 
       tire.setPosition(position);
 
@@ -100,7 +113,7 @@ describe('Tire', () => {
   describe('Tire Launch', () => {
     it('should launch with given velocity', () => {
       const tire = new Tire(TireType.STANDARD, scene, physicsManager);
-      const velocity = new THREE.Vector3(10, 15, 0);
+      const velocity = new BABYLON.Vector3(10, 15, 0);
 
       tire.launch(velocity);
 
@@ -112,7 +125,7 @@ describe('Tire', () => {
 
     it('should apply initial spin on launch', () => {
       const tire = new Tire(TireType.STANDARD, scene, physicsManager);
-      const velocity = new THREE.Vector3(10, 0, 0);
+      const velocity = new BABYLON.Vector3(10, 0, 0);
 
       tire.launch(velocity);
 
@@ -150,7 +163,7 @@ describe('Tire', () => {
   describe('Tire Update', () => {
     it('should update position from physics', () => {
       const tire = new Tire(TireType.STANDARD, scene, physicsManager);
-      tire.launch(new THREE.Vector3(0, 10, 0));
+      tire.launch(new BABYLON.Vector3(0, 10, 0));
 
       const initialY = tire.mesh.position.y;
 
@@ -166,8 +179,8 @@ describe('Tire', () => {
 
     it('should track distance traveled', () => {
       const tire = new Tire(TireType.STANDARD, scene, physicsManager);
-      tire.setPosition(new THREE.Vector3(0, 0, 0));
-      tire.launch(new THREE.Vector3(10, 0, 0));
+      tire.setPosition(new BABYLON.Vector3(0, 0, 0));
+      tire.launch(new BABYLON.Vector3(10, 0, 0));
 
       // Simulate movement
       for (let i = 0; i < 60; i++) {
@@ -184,11 +197,11 @@ describe('Tire', () => {
     it('should remove tire from scene on destroy', () => {
       const tire = new Tire(TireType.STANDARD, scene, physicsManager);
 
-      expect(scene.children).toContain(tire.mesh);
+      expect(scene.meshes).toContain(tire.mesh);
 
       tire.destroy();
 
-      expect(scene.children).not.toContain(tire.mesh);
+      expect(scene.meshes).not.toContain(tire.mesh);
     });
 
     it('should remove tire from physics on destroy', () => {
@@ -200,10 +213,10 @@ describe('Tire', () => {
       expect(physicsManager.world.bodies.length).toBe(bodyCount - 1);
     });
 
-    it('should dispose geometries and materials', () => {
+    it('should dispose mesh on destroy', () => {
       const tire = new Tire(TireType.STANDARD, scene, physicsManager);
 
-      const disposeSpy = jest.spyOn(tire.mesh.geometry, 'dispose');
+      const disposeSpy = jest.spyOn(tire.mesh, 'dispose');
 
       tire.destroy();
 

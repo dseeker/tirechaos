@@ -1,15 +1,28 @@
-import * as THREE from 'three';
+import * as BABYLON from '@babylonjs/core';
 import { PhysicsManager } from '../PhysicsManager';
+
+// Mock Babylon.js engine and scene for testing
+class MockEngine {
+  getRenderingCanvas() {
+    return document.createElement('canvas');
+  }
+  dispose() {}
+}
 
 describe('PhysicsManager', () => {
   let physicsManager: PhysicsManager;
+  let scene: BABYLON.Scene;
+  let engine: any;
 
   beforeEach(() => {
+    engine = new MockEngine() as any;
+    scene = new BABYLON.Scene(engine);
     physicsManager = new PhysicsManager();
   });
 
   afterEach(() => {
     physicsManager.clear();
+    scene.dispose();
   });
 
   describe('Initialization', () => {
@@ -29,9 +42,7 @@ describe('PhysicsManager', () => {
 
   describe('Ground Plane', () => {
     it('should add ground plane correctly', () => {
-      const geometry = new THREE.BoxGeometry(10, 1, 10);
-      const material = new THREE.MeshBasicMaterial();
-      const mesh = new THREE.Mesh(geometry, material);
+      const mesh = BABYLON.MeshBuilder.CreateBox('ground', { width: 10, height: 1, depth: 10 }, scene);
 
       const body = physicsManager.addGroundPlane(mesh);
 
@@ -41,9 +52,7 @@ describe('PhysicsManager', () => {
     });
 
     it('should position ground plane at mesh position', () => {
-      const geometry = new THREE.BoxGeometry(10, 1, 10);
-      const material = new THREE.MeshBasicMaterial();
-      const mesh = new THREE.Mesh(geometry, material);
+      const mesh = BABYLON.MeshBuilder.CreateBox('ground', { width: 10, height: 1, depth: 10 }, scene);
       mesh.position.set(5, -10, 3);
 
       const body = physicsManager.addGroundPlane(mesh);
@@ -56,9 +65,7 @@ describe('PhysicsManager', () => {
 
   describe('Destructible Objects', () => {
     it('should add destructible object correctly', () => {
-      const geometry = new THREE.BoxGeometry(1, 1, 1);
-      const material = new THREE.MeshBasicMaterial();
-      const mesh = new THREE.Mesh(geometry, material);
+      const mesh = BABYLON.MeshBuilder.CreateBox('box', { size: 1 }, scene);
 
       const body = physicsManager.addDestructibleObject(mesh, {
         mass: 5,
@@ -72,9 +79,7 @@ describe('PhysicsManager', () => {
     });
 
     it('should track destructible objects', () => {
-      const geometry = new THREE.BoxGeometry(1, 1, 1);
-      const material = new THREE.MeshBasicMaterial();
-      const mesh = new THREE.Mesh(geometry, material);
+      const mesh = BABYLON.MeshBuilder.CreateBox('box', { size: 1 }, scene);
 
       physicsManager.addDestructibleObject(mesh, {
         mass: 5,
@@ -91,9 +96,7 @@ describe('PhysicsManager', () => {
 
   describe('Tire Bodies', () => {
     it('should add tire body correctly', () => {
-      const geometry = new THREE.CylinderGeometry(0.4, 0.4, 0.25, 16);
-      const material = new THREE.MeshBasicMaterial();
-      const mesh = new THREE.Mesh(geometry, material);
+      const mesh = BABYLON.MeshBuilder.CreateCylinder('tire', { height: 0.25, diameter: 0.8 }, scene);
 
       const body = physicsManager.addTireBody(mesh, 0.4, 0.25, 20);
 
@@ -103,9 +106,7 @@ describe('PhysicsManager', () => {
     });
 
     it('should apply tire material properties', () => {
-      const geometry = new THREE.CylinderGeometry(0.4, 0.4, 0.25, 16);
-      const material = new THREE.MeshBasicMaterial();
-      const mesh = new THREE.Mesh(geometry, material);
+      const mesh = BABYLON.MeshBuilder.CreateCylinder('tire', { height: 0.25, diameter: 0.8 }, scene);
 
       const body = physicsManager.addTireBody(mesh, 0.4, 0.25, 20);
 
@@ -116,9 +117,7 @@ describe('PhysicsManager', () => {
 
   describe('Physics Simulation', () => {
     it('should update physics world', () => {
-      const geometry = new THREE.BoxGeometry(1, 1, 1);
-      const material = new THREE.MeshBasicMaterial();
-      const mesh = new THREE.Mesh(geometry, material);
+      const mesh = BABYLON.MeshBuilder.CreateBox('box', { size: 1 }, scene);
       mesh.position.set(0, 10, 0);
 
       physicsManager.addDestructibleObject(mesh, {
@@ -139,9 +138,7 @@ describe('PhysicsManager', () => {
     });
 
     it('should sync mesh positions with physics bodies', () => {
-      const geometry = new THREE.BoxGeometry(1, 1, 1);
-      const material = new THREE.MeshBasicMaterial();
-      const mesh = new THREE.Mesh(geometry, material);
+      const mesh = BABYLON.MeshBuilder.CreateBox('box', { size: 1 }, scene);
       mesh.position.set(0, 5, 0);
 
       const body = physicsManager.addDestructibleObject(mesh, {
@@ -164,9 +161,7 @@ describe('PhysicsManager', () => {
 
   describe('Force Application', () => {
     it('should apply force to body', () => {
-      const geometry = new THREE.BoxGeometry(1, 1, 1);
-      const material = new THREE.MeshBasicMaterial();
-      const mesh = new THREE.Mesh(geometry, material);
+      const mesh = BABYLON.MeshBuilder.CreateBox('box', { size: 1 }, scene);
 
       const body = physicsManager.addDestructibleObject(mesh, {
         mass: 5,
@@ -184,9 +179,7 @@ describe('PhysicsManager', () => {
     });
 
     it('should apply impulse to body', () => {
-      const geometry = new THREE.BoxGeometry(1, 1, 1);
-      const material = new THREE.MeshBasicMaterial();
-      const mesh = new THREE.Mesh(geometry, material);
+      const mesh = BABYLON.MeshBuilder.CreateBox('box', { size: 1 }, scene);
 
       physicsManager.addDestructibleObject(mesh, {
         mass: 5,
@@ -201,9 +194,7 @@ describe('PhysicsManager', () => {
     });
 
     it('should set velocity directly', () => {
-      const geometry = new THREE.BoxGeometry(1, 1, 1);
-      const material = new THREE.MeshBasicMaterial();
-      const mesh = new THREE.Mesh(geometry, material);
+      const mesh = BABYLON.MeshBuilder.CreateBox('box', { size: 1 }, scene);
 
       physicsManager.addDestructibleObject(mesh, {
         mass: 5,
@@ -222,12 +213,9 @@ describe('PhysicsManager', () => {
 
   describe('Cleanup', () => {
     it('should clear all bodies', () => {
-      const geometry = new THREE.BoxGeometry(1, 1, 1);
-      const material = new THREE.MeshBasicMaterial();
-
       // Add multiple objects
       for (let i = 0; i < 5; i++) {
-        const mesh = new THREE.Mesh(geometry, material);
+        const mesh = BABYLON.MeshBuilder.CreateBox(`box_${i}`, { size: 1 }, scene);
         physicsManager.addDestructibleObject(mesh, {
           mass: 5,
           health: 100,

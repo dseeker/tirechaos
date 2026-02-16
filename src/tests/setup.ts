@@ -1,9 +1,9 @@
 /**
  * Jest test setup file
- * Configures test environment and mocks
+ * Configures test environment and mocks for Babylon.js
  */
 
-// Mock WebGL context for Three.js
+// Mock WebGL context for Babylon.js rendering
 class MockWebGLRenderingContext {
   canvas = {
     width: 800,

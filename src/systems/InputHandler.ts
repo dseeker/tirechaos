@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as BABYLON from '@babylonjs/core';
 import { InputState, TrajectoryPoint } from '../types';
 import { GameManager } from '../core/GameManager';
 
@@ -9,13 +9,13 @@ export class InputHandler {
   private gameManager: GameManager;
   private inputState: InputState = {
     isDragging: false,
-    startPosition: new THREE.Vector2(),
-    currentPosition: new THREE.Vector2(),
+    startPosition: new BABYLON.Vector2(),
+    currentPosition: new BABYLON.Vector2(),
     power: 0,
     angle: 45,
   };
 
-  private trajectoryLine?: THREE.Line;
+  private trajectoryLine?: BABYLON.LinesMesh;
   private trajectoryPoints: TrajectoryPoint[] = [];
   private maxPower: number = 1.0;
   private maxDragDistance: number = 200; // pixels
@@ -32,7 +32,7 @@ export class InputHandler {
    * Setup mouse/touch event listeners
    */
   private setupEventListeners(): void {
-    const canvas = this.gameManager.renderer.domElement;
+    const canvas = this.gameManager.engine.getRenderingCanvas()!;
 
     // Mouse events
     canvas.addEventListener('mousedown', this.onPointerDown.bind(this));
@@ -52,17 +52,9 @@ export class InputHandler {
    * Create trajectory prediction line
    */
   private createTrajectoryLine(): void {
-    const geometry = new THREE.BufferGeometry();
-    const material = new THREE.LineBasicMaterial({
-      color: 0xffff00,
-      opacity: 0.6,
-      transparent: true,
-      linewidth: 2,
-    });
-
-    this.trajectoryLine = new THREE.Line(geometry, material);
-    this.gameManager.scene.add(this.trajectoryLine);
-    this.trajectoryLine.visible = false;
+    // Babylon LinesMesh will be created dynamically when we have points
+    // For now, just prepare the trajectory points array
+    this.trajectoryPoints = [];
   }
 
   /**
@@ -111,7 +103,7 @@ export class InputHandler {
     // Hide trajectory
     this.showTrajectoryIndicator(false);
     if (this.trajectoryLine) {
-      this.trajectoryLine.visible = false;
+      this.trajectoryLine.isVisible = false;
     }
   }
 
@@ -162,7 +154,7 @@ export class InputHandler {
    * Update aiming parameters based on drag
    */
   private updateAimingParameters(): void {
-    const delta = this.inputState.currentPosition.clone().sub(this.inputState.startPosition);
+    const delta = this.inputState.currentPosition.subtract(this.inputState.startPosition);
 
     // Calculate power (0-1) based on drag distance
     const dragDistance = delta.length();
@@ -177,32 +169,41 @@ export class InputHandler {
    * Update trajectory prediction
    */
   private updateTrajectoryPrediction(): void {
-    if (!this.trajectoryLine) return;
-
     this.trajectoryPoints = this.calculateTrajectory(
-      new THREE.Vector3(-15, 2, 0), // Launch position
+      new BABYLON.Vector3(-15, 2, 0), // Launch position
       this.inputState.power,
       this.inputState.angle,
     );
 
-    // Update line geometry
-    const positions = new Float32Array(this.trajectoryPoints.length * 3);
-    this.trajectoryPoints.forEach((point, i) => {
-      positions[i * 3] = point.position.x;
-      positions[i * 3 + 1] = point.position.y;
-      positions[i * 3 + 2] = point.position.z;
-    });
+    // Dispose old trajectory line
+    if (this.trajectoryLine) {
+      this.trajectoryLine.dispose();
+    }
 
-    this.trajectoryLine.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    this.trajectoryLine.geometry.attributes.position.needsUpdate = true;
-    this.trajectoryLine.visible = true;
+    // Create new trajectory line if we have points
+    if (this.trajectoryPoints.length >= 2) {
+      const points = this.trajectoryPoints.map((tp) => tp.position);
+
+      this.trajectoryLine = BABYLON.MeshBuilder.CreateLines(
+        'trajectoryLine',
+        {
+          points: points,
+          updatable: true,
+        },
+        this.gameManager.scene,
+      );
+
+      this.trajectoryLine.color = new BABYLON.Color3(1, 1, 0); // Yellow
+      this.trajectoryLine.alpha = 0.6;
+      this.trajectoryLine.isVisible = true;
+    }
   }
 
   /**
    * Calculate trajectory points using projectile motion
    */
   private calculateTrajectory(
-    startPosition: THREE.Vector3,
+    startPosition: BABYLON.Vector3,
     power: number,
     angle: number,
   ): TrajectoryPoint[] {
@@ -213,7 +214,7 @@ export class InputHandler {
     const timeStep = 0.1;
     const maxTime = 3;
 
-    const velocity = new THREE.Vector3(
+    const velocity = new BABYLON.Vector3(
       Math.cos(angleRad) * launchSpeed,
       Math.sin(angleRad) * launchSpeed,
       0,
@@ -233,7 +234,7 @@ export class InputHandler {
       currentVelocity.y += gravity * timeStep;
 
       // Update position
-      position.add(currentVelocity.clone().multiplyScalar(timeStep));
+      position.addInPlace(currentVelocity.scale(timeStep));
 
       // Stop if hit ground
       if (position.y < -5) break;
@@ -286,7 +287,7 @@ export class InputHandler {
    * Clean up event listeners
    */
   public destroy(): void {
-    const canvas = this.gameManager.renderer.domElement;
+    const canvas = this.gameManager.engine.getRenderingCanvas()!;
 
     canvas.removeEventListener('mousedown', this.onPointerDown.bind(this));
     canvas.removeEventListener('mousemove', this.onPointerMove.bind(this));
@@ -297,7 +298,7 @@ export class InputHandler {
     window.removeEventListener('keydown', this.onKeyDown.bind(this));
 
     if (this.trajectoryLine) {
-      this.gameManager.scene.remove(this.trajectoryLine);
+      this.trajectoryLine.dispose();
     }
   }
 }

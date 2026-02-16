@@ -1,28 +1,33 @@
-import * as THREE from 'three';
+import * as BABYLON from '@babylonjs/core';
 import { PhysicsManager } from '../systems/PhysicsManager';
 import { CameraDirector } from '../systems/CameraDirector';
 import { ScoringSystem } from '../systems/ScoringSystem';
 import { InputHandler } from '../systems/InputHandler';
 import { Tire } from '../entities/Tire';
-import { GameState, TireType, LevelConfig } from '../types';
+import { GameState, TireType, LevelConfig, DEFAULT_POSTPROCESSING_CONFIG } from '../types';
 
 /**
  * GameManager - Central game controller (Singleton pattern)
  * Manages game state, scene, and coordinates all subsystems
+ * NOW POWERED BY BABYLON.JS! 🎨
  */
 export class GameManager {
   private static instance: GameManager;
 
-  // Core Three.js components
-  public scene: THREE.Scene;
-  public renderer: THREE.WebGLRenderer;
-  public camera: THREE.PerspectiveCamera;
+  // Core Babylon.js components
+  public engine: BABYLON.Engine;
+  public scene: BABYLON.Scene;
+  public camera: BABYLON.UniversalCamera;
 
   // Game systems
   public physicsManager: PhysicsManager;
   public cameraDirector: CameraDirector;
   public scoringSystem: ScoringSystem;
   public inputHandler: InputHandler;
+
+  // Rendering pipeline
+  private defaultPipeline?: BABYLON.DefaultRenderingPipeline;
+  private shadowGenerator?: BABYLON.ShadowGenerator;
 
   // Game state
   public gameState: GameState;
@@ -35,32 +40,37 @@ export class GameManager {
   private _fps: number = 60;
 
   private constructor() {
-    // Initialize Three.js scene
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x87ceeb);
-    this.scene.fog = new THREE.Fog(0x87ceeb, 50, 200);
+    // Initialize Babylon.js engine
+    const canvas = document.getElementById('game-canvas') as unknown as HTMLCanvasElement;
 
-    // Setup renderer
-    const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
-    this.renderer = new THREE.WebGLRenderer({
-      canvas,
-      antialias: true,
+    this.engine = new BABYLON.Engine(canvas, true, {
+      preserveDrawingBuffer: true,
+      stencil: true,
+      disableWebGL2Support: false,
       powerPreference: 'high-performance',
     });
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    // Create scene
+    this.scene = new BABYLON.Scene(this.engine);
+    this.scene.clearColor = new BABYLON.Color4(0.53, 0.81, 0.92, 1.0); // Sky blue
+
+    // Enable physics (Cannon.js)
+    this.scene.enablePhysics(
+      new BABYLON.Vector3(0, -9.82, 0),
+      new BABYLON.CannonJSPlugin()
+    );
 
     // Setup camera
-    this.camera = new THREE.PerspectiveCamera(
-      75,
-      window.innerWidth / window.innerHeight,
-      0.1,
-      1000,
+    this.camera = new BABYLON.UniversalCamera(
+      'mainCamera',
+      new BABYLON.Vector3(0, 10, 20),
+      this.scene
     );
-    this.camera.position.set(0, 10, 20);
-    this.camera.lookAt(0, 0, 0);
+    this.camera.setTarget(BABYLON.Vector3.Zero());
+    this.camera.attachControl(canvas, false);
+    this.camera.minZ = 0.1;
+    this.camera.maxZ = 1000;
+    this.camera.fov = 1.2; // ~75 degrees
 
     // Initialize game systems
     this.physicsManager = new PhysicsManager();
@@ -80,7 +90,10 @@ export class GameManager {
     };
 
     this.setupLights();
+    this.setupPostProcessing();
     this.setupEventListeners();
+
+    console.log('🎨 Babylon.js GameManager initialized with PBR pipeline!');
   }
 
   /**
@@ -94,36 +107,105 @@ export class GameManager {
   }
 
   /**
-   * Setup scene lighting
+   * Setup advanced lighting with PBR support
    */
   private setupLights(): void {
     // Ambient light for overall illumination
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-    this.scene.add(ambientLight);
+    const ambientLight = new BABYLON.HemisphericLight(
+      'ambient',
+      new BABYLON.Vector3(0, 1, 0),
+      this.scene
+    );
+    ambientLight.intensity = 0.6;
+    ambientLight.groundColor = new BABYLON.Color3(0.36, 0.31, 0.22); // Brownish ground
 
-    // Directional light (sun) with shadows
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    directionalLight.position.set(50, 50, 25);
-    directionalLight.castShadow = true;
-    directionalLight.shadow.mapSize.width = 2048;
-    directionalLight.shadow.mapSize.height = 2048;
-    directionalLight.shadow.camera.near = 0.5;
-    directionalLight.shadow.camera.far = 500;
-    directionalLight.shadow.camera.left = -50;
-    directionalLight.shadow.camera.right = 50;
-    directionalLight.shadow.camera.top = 50;
-    directionalLight.shadow.camera.bottom = -50;
-    this.scene.add(directionalLight);
+    // Directional light (sun) with advanced shadows
+    const sunLight = new BABYLON.DirectionalLight(
+      'sun',
+      new BABYLON.Vector3(-1, -2, -1),
+      this.scene
+    );
+    sunLight.position = new BABYLON.Vector3(50, 50, 25);
+    sunLight.intensity = 0.8;
 
-    // Hemisphere light for sky/ground ambient
-    const hemisphereLight = new THREE.HemisphereLight(0x87ceeb, 0x5d4e37, 0.4);
-    this.scene.add(hemisphereLight);
+    // Advanced shadow generator
+    this.shadowGenerator = new BABYLON.ShadowGenerator(2048, sunLight);
+    this.shadowGenerator.useExponentialShadowMap = true;
+    this.shadowGenerator.usePoissonSampling = true;
+    this.shadowGenerator.filteringQuality = BABYLON.ShadowGenerator.QUALITY_HIGH;
+    this.shadowGenerator.darkness = 0.3;
+
+    // Environment texture for PBR reflections
+    const envTexture = BABYLON.CubeTexture.CreateFromPrefilteredData(
+      'https://playground.babylonjs.com/textures/environment.env',
+      this.scene
+    );
+    this.scene.environmentTexture = envTexture;
+    this.scene.environmentIntensity = 0.5;
+
+    console.log('✨ Advanced lighting setup complete (PBR + Shadows)');
+  }
+
+  /**
+   * Setup post-processing pipeline for cinematic visuals
+   */
+  private setupPostProcessing(): void {
+    const config = DEFAULT_POSTPROCESSING_CONFIG;
+
+    // Default rendering pipeline (includes most effects)
+    this.defaultPipeline = new BABYLON.DefaultRenderingPipeline(
+      'defaultPipeline',
+      true, // HDR
+      this.scene,
+      [this.camera]
+    );
+
+    // Anti-aliasing
+    this.defaultPipeline.samples = 4;
+
+    // Bloom effect
+    if (config.bloom.enabled) {
+      this.defaultPipeline.bloomEnabled = true;
+      this.defaultPipeline.bloomThreshold = config.bloom.threshold;
+      this.defaultPipeline.bloomWeight = config.bloom.weight;
+      this.defaultPipeline.bloomKernel = config.bloom.kernel;
+      this.defaultPipeline.bloomScale = 0.5;
+    }
+
+    // Image processing (tone mapping, contrast, exposure)
+    this.defaultPipeline.imageProcessingEnabled = true;
+    this.defaultPipeline.imageProcessing.toneMappingEnabled = true;
+    this.defaultPipeline.imageProcessing.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
+    this.defaultPipeline.imageProcessing.contrast = 1.2;
+    this.defaultPipeline.imageProcessing.exposure = 1.0;
+
+    // Chromatic aberration
+    if (config.chromaticAberration.enabled) {
+      this.defaultPipeline.chromaticAberrationEnabled = true;
+      this.defaultPipeline.chromaticAberration.aberrationAmount = config.chromaticAberration.aberrationAmount;
+    }
+
+    // Depth of Field (disabled by default, can enable for cinematic shots)
+    if (config.depthOfField.enabled) {
+      this.defaultPipeline.depthOfFieldEnabled = true;
+      this.defaultPipeline.depthOfFieldBlurLevel = BABYLON.DepthOfFieldEffectBlurLevel.Medium;
+      this.defaultPipeline.depthOfField.focalLength = config.depthOfField.focalLength;
+      this.defaultPipeline.depthOfField.fStop = config.depthOfField.fStop;
+    }
+
+    // Grain effect for film-like quality
+    this.defaultPipeline.grainEnabled = true;
+    this.defaultPipeline.grain.intensity = 5;
+    this.defaultPipeline.grain.animated = true;
+
+    console.log('🌟 Post-processing pipeline enabled (Bloom, HDR, Tone Mapping)');
   }
 
   /**
    * Setup event listeners
    */
   private setupEventListeners(): void {
+    // Handle window resize
     window.addEventListener('resize', this.onWindowResize.bind(this));
 
     // UI button handlers
@@ -131,22 +213,29 @@ export class GameManager {
     if (resetBtn) {
       resetBtn.addEventListener('click', () => this.resetLevel());
     }
+
+    // Optimize engine on window blur
+    window.addEventListener('blur', () => {
+      this.engine.stopRenderLoop();
+    });
+
+    window.addEventListener('focus', () => {
+      this.engine.runRenderLoop(() => this.render());
+    });
   }
 
   /**
    * Handle window resize
    */
   private onWindowResize(): void {
-    this.camera.aspect = window.innerWidth / window.innerHeight;
-    this.camera.updateProjectionMatrix();
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.engine.resize();
   }
 
   /**
    * Initialize and start the game
    */
   public async init(): Promise<void> {
-    console.log('🎮 Initializing TIRE CHAOS...');
+    console.log('🎮 Initializing TIRE CHAOS with Babylon.js...');
 
     // Create test level
     this.createTestLevel();
@@ -160,62 +249,83 @@ export class GameManager {
     if (hud) hud.classList.remove('hidden');
     if (controls) controls.classList.remove('hidden');
 
-    // Start game loop
+    // Start render loop
     this.start();
 
-    console.log('✅ Game initialized successfully!');
+    console.log('✅ Game initialized successfully with Babylon.js!');
+    console.log('🎨 PBR materials, advanced lighting, and post-processing active!');
   }
 
   /**
    * Create a test level for development
    */
   private createTestLevel(): void {
-    // Create ground/hill
-    const hillGeometry = new THREE.BoxGeometry(50, 1, 20);
-    const hillMaterial = new THREE.MeshStandardMaterial({
-      color: 0x5d8c3e,
-      roughness: 0.8,
-      metalness: 0.2,
-    });
-    const hillMesh = new THREE.Mesh(hillGeometry, hillMaterial);
-    hillMesh.position.set(0, -5, 0);
-    hillMesh.rotation.z = -0.2; // Slight slope
-    hillMesh.receiveShadow = true;
-    this.scene.add(hillMesh);
+    // Create ground/hill with PBR material
+    const ground = BABYLON.MeshBuilder.CreateBox(
+      'ground',
+      { width: 50, height: 1, depth: 20 },
+      this.scene
+    );
+    ground.position = new BABYLON.Vector3(0, -5, 0);
+    ground.rotation.z = -0.2; // Slight slope
+
+    // PBR material for ground
+    const groundMaterial = new BABYLON.PBRMetallicRoughnessMaterial('groundMat', this.scene);
+    groundMaterial.baseColor = new BABYLON.Color3(0.36, 0.55, 0.24); // Grass green
+    groundMaterial.metallic = 0.0;
+    groundMaterial.roughness = 0.9;
+    ground.material = groundMaterial;
+
+    // Enable shadows
+    ground.receiveShadows = true;
 
     // Add to physics
-    this.physicsManager.addGroundPlane(hillMesh);
+    this.physicsManager.addGroundPlane(ground);
 
     // Create some destructible objects
     this.createDestructibleObjects();
+
+    console.log('🏔️ Test level created with PBR materials');
   }
 
   /**
-   * Create destructible objects for testing
+   * Create destructible objects with PBR materials
    */
   private createDestructibleObjects(): void {
-    const boxGeometry = new THREE.BoxGeometry(1, 1, 1);
-    const materials = [
-      new THREE.MeshStandardMaterial({ color: 0xff6b35 }),
-      new THREE.MeshStandardMaterial({ color: 0x00d9ff }),
-      new THREE.MeshStandardMaterial({ color: 0xb7ce63 }),
+    const colors = [
+      BABYLON.Color3.FromHexString('#ff6b35'), // Orange
+      BABYLON.Color3.FromHexString('#00d9ff'), // Cyan
+      BABYLON.Color3.FromHexString('#b7ce63'), // Lime
     ];
 
     for (let i = 0; i < 10; i++) {
-      const material = materials[i % materials.length];
-      const mesh = new THREE.Mesh(boxGeometry, material);
+      const box = BABYLON.MeshBuilder.CreateBox(
+        `box_${i}`,
+        { size: 1 },
+        this.scene
+      );
 
       // Position objects down the hill
-      mesh.position.set(
+      box.position = new BABYLON.Vector3(
         (Math.random() - 0.5) * 10,
         -3 + Math.random() * 2,
-        (Math.random() - 0.5) * 8,
+        (Math.random() - 0.5) * 8
       );
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
 
-      this.scene.add(mesh);
-      this.physicsManager.addDestructibleObject(mesh, {
+      // PBR material
+      const material = new BABYLON.PBRMetallicRoughnessMaterial(`boxMat_${i}`, this.scene);
+      material.baseColor = colors[i % colors.length];
+      material.metallic = 0.1;
+      material.roughness = 0.7;
+      box.material = material;
+
+      // Enable shadows
+      box.receiveShadows = true;
+      if (this.shadowGenerator) {
+        this.shadowGenerator.addShadowCaster(box);
+      }
+
+      this.physicsManager.addDestructibleObject(box, {
         mass: 5,
         health: 100,
         points: 50,
@@ -235,19 +345,24 @@ export class GameManager {
     const tire = new Tire(tireType, this.scene, this.physicsManager);
 
     // Set launch position
-    tire.setPosition(new THREE.Vector3(-15, 2, 0));
+    tire.setPosition(new BABYLON.Vector3(-15, 2, 0));
 
     // Calculate launch velocity
-    const launchSpeed = power * 30; // Max speed ~30 m/s
+    const launchSpeed = power * 30;
     const angleRad = (angle * Math.PI) / 180;
 
-    const velocity = new THREE.Vector3(
+    const velocity = new BABYLON.Vector3(
       Math.cos(angleRad) * launchSpeed,
       Math.sin(angleRad) * launchSpeed,
-      0,
+      0
     );
 
     tire.launch(velocity);
+
+    // Add to shadow casters
+    if (this.shadowGenerator) {
+      this.shadowGenerator.addShadowCaster(tire.mesh);
+    }
 
     this.activeTires.push(tire);
     this.gameState.tiresRemaining--;
@@ -311,8 +426,8 @@ export class GameManager {
     this.createTestLevel();
 
     // Reset camera
-    this.camera.position.set(0, 10, 20);
-    this.camera.lookAt(0, 0, 0);
+    this.camera.position = new BABYLON.Vector3(0, 10, 20);
+    this.camera.setTarget(BABYLON.Vector3.Zero());
 
     this.updateUI();
   }
@@ -321,21 +436,10 @@ export class GameManager {
    * Clear all objects from scene
    */
   private clearScene(): void {
-    const objectsToRemove: THREE.Object3D[] = [];
-
-    this.scene.traverse((object) => {
-      if (object instanceof THREE.Mesh && object.geometry) {
-        objectsToRemove.push(object);
-      }
-    });
-
-    objectsToRemove.forEach((object) => {
-      this.scene.remove(object);
-      if (object instanceof THREE.Mesh) {
-        object.geometry.dispose();
-        if (object.material instanceof THREE.Material) {
-          object.material.dispose();
-        }
+    // Dispose all meshes except camera
+    this.scene.meshes.forEach((mesh) => {
+      if (mesh !== this.camera as any) {
+        mesh.dispose();
       }
     });
 
@@ -343,17 +447,16 @@ export class GameManager {
   }
 
   /**
-   * Main game loop
+   * Main render function
    */
-  private animate(time: number): void {
+  private render(): void {
     if (this.gameState.isPaused) {
-      requestAnimationFrame(this.animate.bind(this));
       return;
     }
 
-    // Calculate delta time
-    const deltaTime = (time - this.lastTime) / 1000;
-    this.lastTime = time;
+    const currentTime = performance.now();
+    const deltaTime = (currentTime - this.lastTime) / 1000;
+    this.lastTime = currentTime;
 
     // Update FPS counter
     this.frameCount++;
@@ -371,18 +474,15 @@ export class GameManager {
     });
 
     // Render scene
-    this.renderer.render(this.scene, this.camera);
-
-    // Continue loop
-    requestAnimationFrame(this.animate.bind(this));
+    this.scene.render();
   }
 
   /**
-   * Start game loop
+   * Start render loop
    */
   public start(): void {
     this.lastTime = performance.now();
-    requestAnimationFrame(this.animate.bind(this));
+    this.engine.runRenderLoop(() => this.render());
   }
 
   /**
@@ -403,8 +503,44 @@ export class GameManager {
    * Clean up resources
    */
   public destroy(): void {
+    this.engine.stopRenderLoop();
     this.clearScene();
-    this.renderer.dispose();
+    this.scene.dispose();
+    this.engine.dispose();
     window.removeEventListener('resize', this.onWindowResize.bind(this));
+  }
+
+  /**
+   * Enable SSAO post-processing effect
+   */
+  public enableSSAO(): void {
+    if (this.defaultPipeline) {
+      const ssaoRatio = {
+        ssaoRatio: 0.5, // Lower for better performance
+        combineRatio: 1.0,
+      };
+
+      const ssao = new BABYLON.SSAORenderingPipeline(
+        'ssao',
+        this.scene,
+        ssaoRatio,
+        [this.camera]
+      );
+
+      ssao.fallOff = 0.000001;
+      ssao.area = 0.5;
+      ssao.radius = 2.0;
+      ssao.totalStrength = 1.3;
+      ssao.base = 0.5;
+
+      console.log('🌑 SSAO enabled for enhanced depth');
+    }
+  }
+
+  /**
+   * Get current FPS
+   */
+  public getFPS(): number {
+    return this._fps;
   }
 }

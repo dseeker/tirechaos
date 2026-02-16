@@ -1,31 +1,32 @@
-import * as THREE from 'three';
+import * as BABYLON from '@babylonjs/core';
 import * as CANNON from 'cannon-es';
 import { TireType, TIRE_CONFIGS, TireConfig } from '../types';
 import { PhysicsManager } from '../systems/PhysicsManager';
 
 /**
  * Tire - Main game entity representing a rollable tire
+ * Now with stunning PBR materials!
  */
 export class Tire {
-  public mesh: THREE.Mesh;
+  public mesh: BABYLON.Mesh;
   public body: CANNON.Body;
   public config: TireConfig;
   public isLaunched: boolean = false;
   public launchTime: number = 0;
 
-  private scene: THREE.Scene;
+  private scene: BABYLON.Scene;
   private physicsManager: PhysicsManager;
-  private trailPoints: THREE.Vector3[] = [];
-  private trail?: THREE.Line;
+  private trailPoints: BABYLON.Vector3[] = [];
+  private trail?: BABYLON.LinesMesh;
 
-  constructor(type: TireType, scene: THREE.Scene, physicsManager: PhysicsManager) {
+  constructor(type: TireType, scene: BABYLON.Scene, physicsManager: PhysicsManager) {
     this.config = TIRE_CONFIGS[type];
     this.scene = scene;
     this.physicsManager = physicsManager;
 
     // Create visual mesh
     this.mesh = this.createMesh();
-    this.scene.add(this.mesh);
+    // Babylon meshes are auto-added to scene
 
     // Create physics body
     this.body = this.createPhysicsBody();
@@ -37,46 +38,64 @@ export class Tire {
   }
 
   /**
-   * Create visual mesh for tire
+   * Create visual mesh for tire with PBR materials
    */
-  private createMesh(): THREE.Mesh {
+  private createMesh(): BABYLON.Mesh {
     const { radius, width } = this.config.properties;
 
     // Create tire geometry (cylinder)
-    const geometry = new THREE.CylinderGeometry(radius, radius, width, 32);
+    const mesh = BABYLON.MeshBuilder.CreateCylinder(
+      `tire_${Date.now()}`,
+      {
+        height: width,
+        diameter: radius * 2,
+        tessellation: 32,
+      },
+      this.scene,
+    );
 
     // Rotate to be wheel-like (around Z axis)
-    geometry.rotateZ(Math.PI / 2);
+    mesh.rotation.z = Math.PI / 2;
 
-    // Create material with texture
-    const material = new THREE.MeshStandardMaterial({
-      color: this.config.color,
-      roughness: 0.9,
-      metalness: 0.1,
-    });
+    // Create PBR material for realistic tire look
+    const material = new BABYLON.PBRMetallicRoughnessMaterial(
+      `tireMat_${Date.now()}`,
+      this.scene,
+    );
+    material.baseColor = this.config.materialConfig.baseColor;
+    material.metallic = this.config.materialConfig.metallic;
+    material.roughness = this.config.materialConfig.roughness;
 
-    // Add tread pattern using normal map (simplified)
+    // Add tread pattern texture
     const treadTexture = this.createTreadTexture();
-    material.map = treadTexture;
+    material.baseTexture = treadTexture;
 
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
+    // Enable emissive for slight self-illumination
+    if (this.config.materialConfig.emissiveColor) {
+      material.emissiveColor = this.config.materialConfig.emissiveColor;
+    }
+
+    mesh.material = material;
+    mesh.receiveShadows = true;
 
     return mesh;
   }
 
   /**
-   * Create simple tread texture
+   * Create simple tread texture for tire
    */
-  private createTreadTexture(): THREE.Texture {
+  private createTreadTexture(): BABYLON.Texture {
     const canvas = document.createElement('canvas');
     canvas.width = 256;
     canvas.height = 256;
     const ctx = canvas.getContext('2d')!;
 
-    // Base color
-    ctx.fillStyle = `#${this.config.color.toString(16).padStart(6, '0')}`;
+    // Base color (convert Color3 to hex)
+    const color = this.config.materialConfig.baseColor;
+    const r = Math.floor(color.r * 255);
+    const g = Math.floor(color.g * 255);
+    const b = Math.floor(color.b * 255);
+    ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
     ctx.fillRect(0, 0, 256, 256);
 
     // Add tread lines
@@ -90,9 +109,10 @@ export class Tire {
       ctx.stroke();
     }
 
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
+    // Create Babylon texture from canvas
+    const texture = new BABYLON.Texture(canvas.toDataURL(), this.scene);
+    texture.wrapU = BABYLON.Texture.WRAP_ADDRESSMODE;
+    texture.wrapV = BABYLON.Texture.WRAP_ADDRESSMODE;
 
     return texture;
   }
@@ -111,29 +131,23 @@ export class Tire {
    * Create trail effect
    */
   private createTrail(): void {
-    const geometry = new THREE.BufferGeometry();
-    const material = new THREE.LineBasicMaterial({
-      color: 0xffffff,
-      opacity: 0.5,
-      transparent: true,
-    });
-
-    this.trail = new THREE.Line(geometry, material);
-    this.scene.add(this.trail);
+    // Babylon LinesMesh will be created when we have points
+    // For now, just initialize trail points array
+    this.trailPoints = [];
   }
 
   /**
    * Set tire position
    */
-  public setPosition(position: THREE.Vector3): void {
-    this.mesh.position.copy(position);
-    this.body.position.copy(position as any);
+  public setPosition(position: BABYLON.Vector3): void {
+    this.mesh.position.copyFrom(position);
+    this.body.position.set(position.x, position.y, position.z);
   }
 
   /**
    * Launch tire with given velocity
    */
-  public launch(velocity: THREE.Vector3): void {
+  public launch(velocity: BABYLON.Vector3): void {
     this.body.velocity.set(velocity.x, velocity.y, velocity.z);
 
     // Add some initial spin
@@ -149,7 +163,7 @@ export class Tire {
    * Update trail effect
    */
   private updateTrail(): void {
-    if (!this.isLaunched || !this.trail) return;
+    if (!this.isLaunched) return;
 
     // Add current position to trail
     this.trailPoints.push(this.mesh.position.clone());
@@ -159,16 +173,27 @@ export class Tire {
       this.trailPoints.shift();
     }
 
-    // Update trail geometry
-    const positions = new Float32Array(this.trailPoints.length * 3);
-    this.trailPoints.forEach((point, i) => {
-      positions[i * 3] = point.x;
-      positions[i * 3 + 1] = point.y;
-      positions[i * 3 + 2] = point.z;
-    });
+    // Update or create trail mesh
+    if (this.trailPoints.length >= 2) {
+      // Dispose old trail
+      if (this.trail) {
+        this.trail.dispose();
+      }
 
-    this.trail.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    this.trail.geometry.attributes.position.needsUpdate = true;
+      // Create new trail line
+      this.trail = BABYLON.MeshBuilder.CreateLines(
+        `trail_${Date.now()}`,
+        {
+          points: this.trailPoints,
+          updatable: true,
+        },
+        this.scene,
+      );
+
+      // Set trail appearance
+      this.trail.color = new BABYLON.Color3(1, 1, 1);
+      this.trail.alpha = 0.5;
+    }
   }
 
   /**
@@ -184,7 +209,7 @@ export class Tire {
   public getDistanceTraveled(): number {
     let distance = 0;
     for (let i = 1; i < this.trailPoints.length; i++) {
-      distance += this.trailPoints[i].distanceTo(this.trailPoints[i - 1]);
+      distance += BABYLON.Vector3.Distance(this.trailPoints[i], this.trailPoints[i - 1]);
     }
     return distance;
   }
@@ -211,35 +236,37 @@ export class Tire {
       this.destroy();
     }
 
-    // Update mesh rotation to match physics
-    this.mesh.position.copy(this.body.position as any);
-    this.mesh.quaternion.copy(this.body.quaternion as any);
+    // Update mesh position and rotation to match physics
+    this.mesh.position.set(this.body.position.x, this.body.position.y, this.body.position.z);
+
+    // Babylon uses rotationQuaternion for physics sync
+    if (!this.mesh.rotationQuaternion) {
+      this.mesh.rotationQuaternion = new BABYLON.Quaternion();
+    }
+    this.mesh.rotationQuaternion.set(
+      this.body.quaternion.x,
+      this.body.quaternion.y,
+      this.body.quaternion.z,
+      this.body.quaternion.w,
+    );
   }
 
   /**
    * Clean up tire resources
    */
   public destroy(): void {
-    // Remove from scene
-    this.scene.remove(this.mesh);
-    if (this.trail) {
-      this.scene.remove(this.trail);
-    }
-
     // Remove from physics
     this.physicsManager.world.removeBody(this.body);
 
-    // Dispose geometry and material
-    this.mesh.geometry.dispose();
-    if (this.mesh.material instanceof THREE.Material) {
+    // Dispose mesh and material (Babylon handles geometry internally)
+    if (this.mesh.material) {
       this.mesh.material.dispose();
     }
+    this.mesh.dispose();
 
+    // Dispose trail
     if (this.trail) {
-      this.trail.geometry.dispose();
-      if (this.trail.material instanceof THREE.Material) {
-        this.trail.material.dispose();
-      }
+      this.trail.dispose();
     }
 
     console.log('🗑️ Tire destroyed');
