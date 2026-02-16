@@ -78,6 +78,10 @@ export class Vector3 {
 export class Color3 {
   constructor(public r: number = 1, public g: number = 1, public b: number = 1) {}
 
+  static Black(): Color3 {
+    return new Color3(0, 0, 0);
+  }
+
   static FromHexString(hex: string): Color3 {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
     if (!result) return new Color3(1, 1, 1);
@@ -86,6 +90,10 @@ export class Color3 {
       parseInt(result[2], 16) / 255,
       parseInt(result[3], 16) / 255
     );
+  }
+
+  scale(factor: number): Color3 {
+    return new Color3(this.r * factor, this.g * factor, this.b * factor);
   }
 }
 
@@ -167,7 +175,10 @@ class MockMesh {
   }
 }
 
-export class Mesh extends MockMesh {}
+export class Mesh extends MockMesh {
+  static CAP_ALL = 3;
+  static CAP_START = 1;
+}
 
 export class LinesMesh extends MockMesh {
   color = new Color3(1, 1, 1);
@@ -180,6 +191,10 @@ export class MeshBuilder {
   }
 
   static CreateCylinder(name: string, options: any, scene: any): Mesh {
+    return new Mesh(name, scene);
+  }
+
+  static CreateSphere(name: string, options: any, scene: any): Mesh {
     return new Mesh(name, scene);
   }
 
