@@ -1,8 +1,8 @@
-import * as THREE from 'three';
+import * as BABYLON from '@babylonjs/core';
 import * as CANNON from 'cannon-es';
 
 /**
- * Core game types and interfaces
+ * Core game types and interfaces - Updated for Babylon.js
  */
 
 export interface TireProperties {
@@ -26,11 +26,20 @@ export enum TireType {
 export interface TireConfig {
   type: TireType;
   properties: TireProperties;
-  color: number;
+  color: BABYLON.Color3;
+  materialConfig: PBRMaterialConfig;
+}
+
+export interface PBRMaterialConfig {
+  baseColor: BABYLON.Color3;
+  metallic: number;
+  roughness: number;
+  bumpTextureUrl?: string;
+  emissiveColor?: BABYLON.Color3;
 }
 
 export interface DestructibleObjectConfig {
-  mesh: THREE.Mesh;
+  mesh: BABYLON.Mesh;
   body: CANNON.Body;
   health: number;
   points: number;
@@ -39,7 +48,7 @@ export interface DestructibleObjectConfig {
 
 export interface CameraConfig {
   type: CameraType;
-  offset: THREE.Vector3;
+  offset: BABYLON.Vector3;
   fov: number;
   interestScore: number;
   minHoldTime: number;
@@ -97,15 +106,15 @@ export interface LevelObjective {
 }
 
 export interface TrajectoryPoint {
-  position: THREE.Vector3;
-  velocity: THREE.Vector3;
+  position: BABYLON.Vector3;
+  velocity: BABYLON.Vector3;
   time: number;
 }
 
 export interface InputState {
   isDragging: boolean;
-  startPosition: THREE.Vector2;
-  currentPosition: THREE.Vector2;
+  startPosition: BABYLON.Vector2;
+  currentPosition: BABYLON.Vector2;
   power: number;
   angle: number;
 }
@@ -115,6 +124,33 @@ export interface ComboChain {
   multiplier: number;
   lastHitTime: number;
   timeWindow: number;
+}
+
+export interface PostProcessingConfig {
+  bloom: {
+    enabled: boolean;
+    threshold: number;
+    weight: number;
+    kernel: number;
+  };
+  ssao: {
+    enabled: boolean;
+    radius: number;
+    totalStrength: number;
+  };
+  motionBlur: {
+    enabled: boolean;
+    motionStrength: number;
+  };
+  depthOfField: {
+    enabled: boolean;
+    focalLength: number;
+    fStop: number;
+  };
+  chromaticAberration: {
+    enabled: boolean;
+    aberrationAmount: number;
+  };
 }
 
 // Constants
@@ -130,7 +166,12 @@ export const TIRE_CONFIGS: Record<TireType, TireConfig> = {
       linearDamping: 0.1,
       angularDamping: 0.05,
     },
-    color: 0x2d3142,
+    color: BABYLON.Color3.FromHexString('#2d3142'),
+    materialConfig: {
+      baseColor: BABYLON.Color3.FromHexString('#2d3142'),
+      metallic: 0.0,
+      roughness: 0.9,
+    },
   },
   [TireType.MONSTER_TRUCK]: {
     type: TireType.MONSTER_TRUCK,
@@ -143,7 +184,12 @@ export const TIRE_CONFIGS: Record<TireType, TireConfig> = {
       linearDamping: 0.15,
       angularDamping: 0.1,
     },
-    color: 0x4a4a4a,
+    color: BABYLON.Color3.FromHexString('#4a4a4a'),
+    materialConfig: {
+      baseColor: BABYLON.Color3.FromHexString('#4a4a4a'),
+      metallic: 0.1,
+      roughness: 0.85,
+    },
   },
   [TireType.RACING_SLICK]: {
     type: TireType.RACING_SLICK,
@@ -156,7 +202,12 @@ export const TIRE_CONFIGS: Record<TireType, TireConfig> = {
       linearDamping: 0.05,
       angularDamping: 0.02,
     },
-    color: 0x1a1a1a,
+    color: BABYLON.Color3.FromHexString('#1a1a1a'),
+    materialConfig: {
+      baseColor: BABYLON.Color3.FromHexString('#1a1a1a'),
+      metallic: 0.0,
+      roughness: 0.95,
+    },
   },
   [TireType.TRACTOR]: {
     type: TireType.TRACTOR,
@@ -169,7 +220,12 @@ export const TIRE_CONFIGS: Record<TireType, TireConfig> = {
       linearDamping: 0.2,
       angularDamping: 0.15,
     },
-    color: 0x3d3d3d,
+    color: BABYLON.Color3.FromHexString('#3d3d3d'),
+    materialConfig: {
+      baseColor: BABYLON.Color3.FromHexString('#3d3d3d'),
+      metallic: 0.0,
+      roughness: 0.8,
+    },
   },
   [TireType.SPARE]: {
     type: TireType.SPARE,
@@ -182,7 +238,12 @@ export const TIRE_CONFIGS: Record<TireType, TireConfig> = {
       linearDamping: 0.05,
       angularDamping: 0.02,
     },
-    color: 0x555555,
+    color: BABYLON.Color3.FromHexString('#555555'),
+    materialConfig: {
+      baseColor: BABYLON.Color3.FromHexString('#555555'),
+      metallic: 0.0,
+      roughness: 0.85,
+    },
   },
 };
 
@@ -191,4 +252,31 @@ export const DEFAULT_PHYSICS_CONFIG: PhysicsConfig = {
   timeStep: 1 / 60,
   maxSubSteps: 3,
   solverIterations: 10,
+};
+
+export const DEFAULT_POSTPROCESSING_CONFIG: PostProcessingConfig = {
+  bloom: {
+    enabled: true,
+    threshold: 0.8,
+    weight: 0.3,
+    kernel: 64,
+  },
+  ssao: {
+    enabled: true,
+    radius: 2.0,
+    totalStrength: 1.3,
+  },
+  motionBlur: {
+    enabled: true,
+    motionStrength: 0.5,
+  },
+  depthOfField: {
+    enabled: false, // Enable for cinematic shots
+    focalLength: 50,
+    fStop: 1.4,
+  },
+  chromaticAberration: {
+    enabled: true,
+    aberrationAmount: 0.5,
+  },
 };
