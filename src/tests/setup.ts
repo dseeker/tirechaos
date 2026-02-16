@@ -107,6 +107,11 @@ global.HTMLCanvasElement.prototype.getContext = function (contextId: string) {
   return null;
 };
 
+// Mock toDataURL for texture creation
+global.HTMLCanvasElement.prototype.toDataURL = function () {
+  return 'data:image/png;base64,mock';
+};
+
 // Mock requestAnimationFrame
 global.requestAnimationFrame = (callback: FrameRequestCallback): number => {
   return setTimeout(() => callback(Date.now()), 16) as any;

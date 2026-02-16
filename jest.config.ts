@@ -7,6 +7,8 @@ const config: Config = {
   testMatch: ['**/__tests__/**/*.test.ts', '**/*.test.ts'],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
+    // Mock Babylon.js with our manual mock
+    '^@babylonjs/core$': '<rootDir>/src/__mocks__/@babylonjs/core.ts',
   },
   collectCoverageFrom: [
     'src/**/*.ts',
