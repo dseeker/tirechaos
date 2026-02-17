@@ -13,9 +13,11 @@ import { EnvironmentManager } from '../systems/EnvironmentManager';
 import { PerformanceManager } from '../systems/PerformanceManager';
 import { BrowserManager } from '../systems/BrowserManager';
 import { SoundManager } from '../systems/SoundManager';
+import { LaunchControlUI } from '../systems/LaunchControlUI';
 import { Tire } from '../entities/Tire';
 import { GameState, TireType, LevelConfig, DEFAULT_POSTPROCESSING_CONFIG, CameraType } from '../types';
 import { DestructibleMaterial } from '../systems/DestructibleObjectFactory';
+import { LevelGenerator, getLevelLayout } from '../levels/LevelGenerator';
 
 /**
  * GameManager - Central game controller (Singleton pattern)
@@ -46,9 +48,15 @@ export class GameManager {
   public browserManager: BrowserManager;
   public soundManager: SoundManager;
 
+  // Launch control
+  public launchControlUI: LaunchControlUI;
+
   // Factories and managers
   public destructibleFactory: DestructibleObjectFactory;
   public environmentManager: EnvironmentManager;
+
+  // Level generator
+  private levelGenerator: LevelGenerator;
 
   // Rendering pipeline
   private defaultPipeline?: BABYLON.DefaultRenderingPipeline;
@@ -58,6 +66,9 @@ export class GameManager {
   public gameState: GameState;
   public currentLevel: LevelConfig | null = null;
   public activeTires: Tire[] = [];
+
+  // Launch position set by the current level layout
+  private _currentLaunchPosition: BABYLON.Vector3 = new BABYLON.Vector3(-15, 2, 0);
 
   // Performance tracking
   private lastTime: number = 0;
@@ -116,6 +127,20 @@ export class GameManager {
     // Initialize factories
     this.destructibleFactory = new DestructibleObjectFactory(this.scene, this.physicsManager);
     this.environmentManager = new EnvironmentManager(this.scene);
+
+    // Initialize level generator
+    this.levelGenerator = new LevelGenerator(
+      this.scene,
+      this.physicsManager,
+      this.destructibleFactory,
+      this.environmentManager,
+      this.shadowGenerator,
+    );
+
+    // Initialize launch control UI (hidden until gameplay starts)
+    this.launchControlUI = new LaunchControlUI((power, angle) => {
+      this.launchTire(power, angle);
+    });
 
     // Initialize game state
     this.gameState = {
@@ -261,7 +286,14 @@ export class GameManager {
       onSelectCamera: (cameraType) => this.cameraDirector.switchCamera(cameraType),
       onToggleFPS: () => this.toggleFPSDisplay(),
       onToggleFullscreen: () => this.browserManager.toggleFullscreen(),
-      onQuickLaunch: () => this.launchTire(0.8, 45),
+      onQuickLaunch: () => {
+        // Use the current LaunchControlUI values when SPACE is pressed
+        if (this.launchControlUI && this.launchControlUI.isVisible()) {
+          this.launchTire(this.launchControlUI.getPower(), this.launchControlUI.getAngle());
+        } else {
+          this.launchTire(0.8, 45);
+        }
+      },
     });
 
     // UI Manager event listeners
@@ -269,7 +301,18 @@ export class GameManager {
     window.addEventListener('resume-game', () => this.resume());
     window.addEventListener('restart-game', () => this.resetLevel());
     window.addEventListener('quit-to-menu', () => this.returnToMenu());
-    window.addEventListener('next-round', () => this.roundManager.nextRound());
+    window.addEventListener('next-round', () => {
+      this.roundManager.nextRound();
+      const nextRoundNum = this.roundManager.getCurrentRoundNumber();
+      if (nextRoundNum > 0) {
+        // Tear down old scene objects, then build the new level layout
+        this.activeTires.forEach((tire) => tire.destroy());
+        this.activeTires = [];
+        this.clearScene();
+        this.loadLevelForRound(nextRoundNum);
+        this.resume();
+      }
+    });
     window.addEventListener('play-again', () => this.startNewGame());
     window.addEventListener('main-menu', () => this.returnToMenu());
 
@@ -289,6 +332,13 @@ export class GameManager {
     window.addEventListener('game-victory', (e: Event) => {
       const customEvent = e as CustomEvent;
       this.showVictory(customEvent.detail);
+    });
+
+    // Physics events
+    window.addEventListener('objectDestroyed', (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const { points, position } = customEvent.detail;
+      this.addScore(points, true, position); // isCombo = true for chaining
     });
 
     // Optimize engine on window blur
@@ -321,8 +371,8 @@ export class GameManager {
     // Setup browser features
     this.browserManager.applyGameRestrictions();
 
-    // Create test level (but don't start game yet)
-    this.createTestLevel();
+    // Create level 1 layout as the background scene on the main menu
+    this.loadLevelForRound(1);
 
     // Hide loading screen, show main menu
     const loading = document.getElementById('loading');
@@ -437,13 +487,28 @@ export class GameManager {
     if (currentRound && !this.roundManager.useTire()) {
       console.log('No tires remaining!');
       this.uiManager.showMessage('No tires left!', 2000);
+      // Hide launch control once all tires are exhausted
+      this.launchControlUI.hide();
       return;
     }
 
-    const tire = new Tire(tireType, this.scene, this.physicsManager);
+    // Briefly disable the launch button while the tire is in flight
+    this.launchControlUI.setLaunchEnabled(false);
+    setTimeout(() => {
+      // Re-enable after a short cooldown (allow camera to settle)
+      const round = this.roundManager.getCurrentRound();
+      if (round && round.tiresAvailable > 0) {
+        this.launchControlUI.setLaunchEnabled(true);
+      } else {
+        // No tires left — hide the control
+        this.launchControlUI.hide();
+      }
+    }, 1200);
 
-    // Set launch position
-    tire.setPosition(new BABYLON.Vector3(-15, 2, 0));
+    const tire = new Tire(tireType, this.scene, this.physicsManager, this.particleManager, this.screenEffects);
+
+    // Set launch position from current level layout
+    tire.setPosition(this._currentLaunchPosition.clone());
 
     // Calculate launch velocity
     const launchSpeed = power * 30;
@@ -562,9 +627,10 @@ export class GameManager {
     this.gameState.tiresRemaining = 3;
     this.gameState.objectsDestroyed = 0;
 
-    // Clear and recreate level
+    // Clear and recreate level for current round
     this.clearScene();
-    this.createTestLevel();
+    const roundNum = this.roundManager.getCurrentRoundNumber() || 1;
+    this.loadLevelForRound(roundNum);
 
     // Reset camera
     this.camera.position = new BABYLON.Vector3(0, 10, 20);
@@ -674,9 +740,17 @@ export class GameManager {
     if (this.gameState.isPaused) {
       this.resume();
       this.uiManager.hidePauseMenu();
+      // Restore launch control if there are tires remaining
+      const round = this.roundManager.getCurrentRound();
+      if (round && round.tiresAvailable > 0) {
+        this.launchControlUI.show();
+        this.launchControlUI.setLaunchEnabled(true);
+      }
     } else {
       this.pause();
       this.uiManager.showPauseMenu();
+      // Hide launch control while paused
+      this.launchControlUI.hide();
     }
   }
 
@@ -729,14 +803,18 @@ export class GameManager {
     this.activeTires = [];
     this.clearScene();
 
-    // Create level
-    this.createTestLevel();
-
-    // Start round manager
+    // Start round manager first so we know which round we're on
     this.roundManager.startNewGame();
+
+    // Build level 1 layout
+    this.loadLevelForRound(1);
 
     // Show game HUD
     this.uiManager.showGameHUD();
+
+    // Show launch control
+    this.launchControlUI.show();
+    this.launchControlUI.setLaunchEnabled(true);
 
     // Initialize sound
     this.soundManager.init().catch(err => console.warn('Sound init failed:', err));
@@ -766,11 +844,14 @@ export class GameManager {
     this.roundManager = new RoundManager();
     this.particleManager.stopAll();
 
-    // Create initial level (for background)
-    this.createTestLevel();
+    // Recreate level 1 as the background
+    this.loadLevelForRound(1);
 
     // Show main menu
     this.uiManager.showMainMenu();
+
+    // Hide launch control on menu
+    this.launchControlUI.hide();
 
     // Pause game
     this.pause();
@@ -781,6 +862,9 @@ export class GameManager {
    */
   private showGameOver(detail: any): void {
     console.log('💀 Game Over!');
+
+    // Hide launch control
+    this.launchControlUI.hide();
 
     // Stop music
     this.soundManager.stopMusic(500);
@@ -812,6 +896,9 @@ export class GameManager {
    */
   private showVictory(detail: any): void {
     console.log('🏆 Victory!');
+
+    // Hide launch control
+    this.launchControlUI.hide();
 
     // Stop music
     this.soundManager.stopMusic(500);
@@ -846,6 +933,7 @@ export class GameManager {
     this.clearScene();
     this.scene.dispose();
     this.engine.dispose();
+    this.launchControlUI.destroy();
     window.removeEventListener('resize', this.onWindowResize.bind(this));
   }
 
@@ -874,6 +962,57 @@ export class GameManager {
 
       console.log('🌑 SSAO enabled for enhanced depth');
     }
+  }
+
+  /**
+   * Trigger a screen shake proportional to impact velocity.
+   * Called by tires (or any system) when a hard collision occurs.
+   *
+   * @param speed      Impact speed in m/s
+   * @param isGround   Whether the collision was with the ground (softer shake)
+   */
+  public triggerImpactShake(speed: number, isGround: boolean): void {
+    // Scale shake between 0.1 and 0.6; ground impacts are a bit softer
+    const maxIntensity = isGround ? 0.45 : 0.6;
+    const shakeIntensity = Math.min(0.1 + speed * 0.025, maxIntensity);
+    const shakeDuration = isGround ? 180 : 250;
+    this.screenEffects.shake(shakeIntensity, shakeDuration);
+  }
+
+  /**
+   * Build the scene for a given round number using LevelGenerator.
+   * Updates the HUD level name, launch position, and RoundManager parameters.
+   */
+  private loadLevelForRound(roundNumber: number): void {
+    const layout = getLevelLayout(roundNumber);
+
+    // Apply sky colour
+    this.scene.clearColor = layout.skyColor;
+
+    // Re-create the levelGenerator each time so it can shadow-register correctly
+    this.levelGenerator = new LevelGenerator(
+      this.scene,
+      this.physicsManager,
+      this.destructibleFactory,
+      this.environmentManager,
+      this.shadowGenerator,
+    );
+
+    this.levelGenerator.buildLevel(layout);
+
+    // Store launch position so launchTire() picks it up
+    this._currentLaunchPosition = layout.launchPosition;
+
+    // Announce the level name in the HUD
+    this.uiManager.showMessage(
+      `Round ${layout.roundNumber}: ${layout.name}`,
+      3000,
+    );
+
+    console.log(
+      `GameManager: loaded level ${layout.roundNumber} "${layout.name}" – ` +
+      `${layout.objects.length} objects, ${layout.props.length} props`,
+    );
   }
 
   /**

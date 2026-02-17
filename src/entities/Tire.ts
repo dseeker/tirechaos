@@ -2,6 +2,15 @@ import * as BABYLON from '@babylonjs/core';
 import * as CANNON from 'cannon-es';
 import { TireType, TIRE_CONFIGS, TireConfig } from '../types';
 import { PhysicsManager } from '../systems/PhysicsManager';
+import { ParticleManager } from '../systems/ParticleManager';
+import { ScreenEffects } from '../systems/ScreenEffects';
+
+// Minimum speed (m/s) below which collisions are ignored for effects
+const IMPACT_THRESHOLD = 1.5;
+// Speed (m/s) above which a "hard" impact screen shake is triggered
+const HARD_IMPACT_THRESHOLD = 8.0;
+// Minimum milliseconds between consecutive impact effects (debounce)
+const IMPACT_DEBOUNCE_MS = 150;
 
 /**
  * Tire - Main game entity representing a rollable tire
@@ -19,10 +28,26 @@ export class Tire {
   private trailPoints: BABYLON.Vector3[] = [];
   private trail?: BABYLON.LinesMesh;
 
-  constructor(type: TireType, scene: BABYLON.Scene, physicsManager: PhysicsManager) {
+  // Optional effect dependencies (injected after construction when available)
+  private particleManager?: ParticleManager;
+  private screenEffects?: ScreenEffects;
+
+  // Collision handling
+  private collisionHandler?: (event: { body: CANNON.Body; contact: CANNON.ContactEquation }) => void;
+  private lastImpactTime: number = 0;
+
+  constructor(
+    type: TireType,
+    scene: BABYLON.Scene,
+    physicsManager: PhysicsManager,
+    particleManager?: ParticleManager,
+    screenEffects?: ScreenEffects,
+  ) {
     this.config = TIRE_CONFIGS[type];
     this.scene = scene;
     this.physicsManager = physicsManager;
+    this.particleManager = particleManager;
+    this.screenEffects = screenEffects;
 
     // Create visual mesh
     this.mesh = this.createMesh();
@@ -34,7 +59,58 @@ export class Tire {
     // Create trail effect
     this.createTrail();
 
+    // Register collision listener (requires particleManager to be set)
+    this.registerCollisionListener();
+
     console.log(`🛞 Tire created: ${type}`);
+  }
+
+  /**
+   * Register a Cannon.js collide listener on the tire's physics body.
+   * Fires impact particles and optional screen shake on significant hits.
+   */
+  private registerCollisionListener(): void {
+    this.collisionHandler = (event: { body: CANNON.Body; contact: CANNON.ContactEquation }) => {
+      const now = performance.now();
+      if (now - this.lastImpactTime < IMPACT_DEBOUNCE_MS) return;
+
+      // Relative velocity at contact point
+      const relVel = event.contact.getImpactVelocityAlongNormal();
+      const speed = Math.abs(relVel);
+
+      if (speed < IMPACT_THRESHOLD) return;
+
+      this.lastImpactTime = now;
+
+      // Determine collision point from the contact equation
+      // ri is the vector from body A's center to the contact point
+      const contactPoint = new BABYLON.Vector3(
+        this.body.position.x + event.contact.ri.x,
+        this.body.position.y + event.contact.ri.y,
+        this.body.position.z + event.contact.ri.z,
+      );
+
+      // Determine whether the other body is a "ground" body by checking if
+      // it is static (mass === 0). Ground planes and the hill are mass=0.
+      const otherBody = event.body;
+      const isGround = otherBody.mass === 0;
+
+      // Trigger particle effect
+      if (this.particleManager) {
+        this.particleManager.createImpactParticles(contactPoint, speed, isGround);
+      }
+
+      // Trigger screen shake on hard impacts
+      if (this.screenEffects && speed >= HARD_IMPACT_THRESHOLD) {
+        // Scale shake intensity between 0.1 and 0.6 depending on speed
+        const shakeIntensity = Math.min(0.1 + (speed - HARD_IMPACT_THRESHOLD) * 0.03, 0.6);
+        const shakeDuration = isGround ? 180 : 250;
+        this.screenEffects.shake(shakeIntensity, shakeDuration);
+      }
+    };
+
+    // Cannon-es uses addEventListener with the event name 'collide'
+    this.body.addEventListener('collide', this.collisionHandler as any);
   }
 
   /**
@@ -255,6 +331,12 @@ export class Tire {
    * Clean up tire resources
    */
   public destroy(): void {
+    // Remove the Cannon.js collision listener before removing the body
+    if (this.collisionHandler) {
+      this.body.removeEventListener('collide', this.collisionHandler as any);
+      this.collisionHandler = undefined;
+    }
+
     // Remove from physics
     this.physicsManager.world.removeBody(this.body);
 

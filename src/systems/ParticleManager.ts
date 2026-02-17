@@ -179,6 +179,102 @@ export class ParticleManager {
   }
 
   /**
+   * Create impact particles for tire-ground collisions (dust/debris) or
+   * tire-object collisions (sparks).
+   *
+   * @param position   World-space collision point
+   * @param velocity   Collision velocity magnitude (used to scale intensity)
+   * @param isGround   true → dust/debris style; false → spark style
+   */
+  public createImpactParticles(
+    position: BABYLON.Vector3,
+    velocity: number,
+    isGround: boolean,
+  ): void {
+    // Clamp intensity to a sensible range (0–1)
+    const intensity = Math.min(velocity / 20, 1.0);
+
+    // Skip very soft touches (avoids constant low-velocity noise)
+    if (intensity < 0.05) return;
+
+    const particleCount = Math.floor(40 * intensity);
+    const systemName = isGround ? 'groundImpact' : 'objectImpact';
+    const particleSystem = new BABYLON.ParticleSystem(systemName, particleCount, this.scene);
+
+    particleSystem.particleTexture = new BABYLON.Texture(
+      'https://playground.babylonjs.com/textures/flare.png',
+      this.scene,
+    );
+
+    particleSystem.emitter = position.clone();
+    particleSystem.minEmitBox = new BABYLON.Vector3(-0.1, 0, -0.1);
+    particleSystem.maxEmitBox = new BABYLON.Vector3(0.1, 0, 0.1);
+
+    if (isGround) {
+      // Dust / debris — earthy browns and tans
+      particleSystem.color1 = new BABYLON.Color4(0.72, 0.57, 0.38, 0.9);
+      particleSystem.color2 = new BABYLON.Color4(0.55, 0.42, 0.25, 0.7);
+      particleSystem.colorDead = new BABYLON.Color4(0.3, 0.25, 0.15, 0.0);
+
+      particleSystem.minSize = 0.05 + 0.15 * intensity;
+      particleSystem.maxSize = 0.15 + 0.4 * intensity;
+
+      particleSystem.minLifeTime = 0.3;
+      particleSystem.maxLifeTime = 0.8 + 0.4 * intensity;
+
+      particleSystem.emitRate = Math.floor(200 * intensity);
+
+      particleSystem.minEmitPower = 2 * intensity;
+      particleSystem.maxEmitPower = 6 * intensity;
+
+      // Eject mostly sideways and slightly upward — like dirt kicked up
+      particleSystem.direction1 = new BABYLON.Vector3(-1.5, 0.5, -1.5);
+      particleSystem.direction2 = new BABYLON.Vector3(1.5, 2.0, 1.5);
+
+      // Gravity pulls dust back down
+      particleSystem.gravity = new BABYLON.Vector3(0, -6, 0);
+    } else {
+      // Sparks — bright yellow/white with a hot orange fade
+      particleSystem.color1 = new BABYLON.Color4(1.0, 1.0, 0.8, 1.0);
+      particleSystem.color2 = new BABYLON.Color4(1.0, 0.6, 0.1, 1.0);
+      particleSystem.colorDead = new BABYLON.Color4(0.4, 0.0, 0.0, 0.0);
+
+      particleSystem.minSize = 0.02;
+      particleSystem.maxSize = 0.06 + 0.06 * intensity;
+
+      particleSystem.minLifeTime = 0.1;
+      particleSystem.maxLifeTime = 0.3 + 0.2 * intensity;
+
+      particleSystem.emitRate = Math.floor(300 * intensity);
+
+      particleSystem.minEmitPower = 4 * intensity;
+      particleSystem.maxEmitPower = 10 * intensity;
+
+      // Sparks scatter in a wide cone
+      particleSystem.direction1 = new BABYLON.Vector3(-1, 0.2, -1);
+      particleSystem.direction2 = new BABYLON.Vector3(1, 2.5, 1);
+
+      // Strong gravity so sparks arc quickly
+      particleSystem.gravity = new BABYLON.Vector3(0, -12, 0);
+    }
+
+    particleSystem.start();
+    this.activeParticleSystems.push(particleSystem);
+
+    // Burst duration: ground impacts linger a little, sparks vanish quickly
+    const burstDuration = isGround ? 120 : 60;
+    const fadeDuration = isGround ? 900 : 400;
+
+    setTimeout(() => {
+      particleSystem.stop();
+      setTimeout(() => {
+        particleSystem.dispose();
+        this.removeParticleSystem(particleSystem);
+      }, fadeDuration);
+    }, burstDuration);
+  }
+
+  /**
    * Create impact sparks
    */
   public createImpactSparks(position: BABYLON.Vector3, direction: BABYLON.Vector3): void {
