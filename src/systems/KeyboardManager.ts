@@ -82,6 +82,7 @@ export class KeyboardManager {
     onToggleFPS?: () => void;
     onToggleFullscreen?: () => void;
     onQuickLaunch?: () => void;
+    onCycleTire?: () => void;
   }): void {
     // Pause/Resume
     if (callbacks.onPause) {
@@ -121,6 +122,11 @@ export class KeyboardManager {
       this.registerShortcut(' ', callbacks.onQuickLaunch); // Spacebar
     }
 
+    // Cycle tire type
+    if (callbacks.onCycleTire) {
+      this.registerShortcut('t', callbacks.onCycleTire);
+    }
+
     console.log('⌨️  Default shortcuts registered:');
     console.log('   P/ESC: Pause');
     console.log('   R: Reset');
@@ -129,6 +135,7 @@ export class KeyboardManager {
     console.log('   TAB: Toggle FPS');
     console.log('   F: Fullscreen');
     console.log('   SPACE: Quick Launch');
+    console.log('   T: Cycle Tire Type');
   }
 
   /**
@@ -144,6 +151,7 @@ export class KeyboardManager {
       '  TAB - Toggle FPS',
       '  F - Fullscreen',
       '  SPACE - Quick launch',
+      '  T - Cycle tire type',
     ];
   }
 

@@ -18,6 +18,7 @@ import { Tire } from '../entities/Tire';
 import { GameState, TireType, LevelConfig, DEFAULT_POSTPROCESSING_CONFIG, CameraType } from '../types';
 import { DestructibleMaterial } from '../systems/DestructibleObjectFactory';
 import { LevelGenerator, getLevelLayout } from '../levels/LevelGenerator';
+import { AchievementManager, GameEvent } from '../systems/AchievementManager';
 
 /**
  * GameManager - Central game controller (Singleton pattern)
@@ -57,6 +58,9 @@ export class GameManager {
 
   // Level generator
   private levelGenerator: LevelGenerator;
+
+  // Achievement system
+  public achievementManager: AchievementManager;
 
   // Rendering pipeline
   private defaultPipeline?: BABYLON.DefaultRenderingPipeline;
@@ -123,6 +127,7 @@ export class GameManager {
     this.performanceManager = new PerformanceManager(this.engine);
     this.browserManager = new BrowserManager(canvas);
     this.soundManager = new SoundManager();
+    this.achievementManager = new AchievementManager();
 
     // Initialize factories
     this.destructibleFactory = new DestructibleObjectFactory(this.scene, this.physicsManager);
@@ -286,8 +291,13 @@ export class GameManager {
       onSelectCamera: (cameraType) => this.cameraDirector.switchCamera(cameraType),
       onToggleFPS: () => this.toggleFPSDisplay(),
       onToggleFullscreen: () => this.browserManager.toggleFullscreen(),
+      onCycleTire: () => {
+        this.launchControlUI.cycleTireType();
+        this.uiManager.showMessage(
+          `Tire: ${this.launchControlUI.getSelectedTireType().toUpperCase()}`, 1000
+        );
+      },
       onQuickLaunch: () => {
-        // Use the current LaunchControlUI values when SPACE is pressed
         if (this.launchControlUI && this.launchControlUI.isVisible()) {
           this.launchTire(this.launchControlUI.getPower(), this.launchControlUI.getAngle());
         } else {
@@ -322,6 +332,17 @@ export class GameManager {
       const { roundData, isLastRound } = customEvent.detail;
       this.uiManager.showRoundEnd(roundData, isLastRound);
       this.pause();
+      // Achievement checks for round completion
+      this.achievementManager.check(GameEvent.ROUND_COMPLETE, {
+        roundNumber: roundData.roundNumber,
+        tiresLeft: roundData.tiresAvailable,
+        timeRemaining: roundData.timeRemaining,
+      });
+      this.achievementManager.check(GameEvent.ROUND_SCORE, {
+        score: roundData.score,
+        isLastTire: roundData.tiresAvailable === 0,
+      });
+      this.soundManager.playSFX('round_complete');
     });
 
     window.addEventListener('game-over', (e: Event) => {
@@ -332,6 +353,7 @@ export class GameManager {
     window.addEventListener('game-victory', (e: Event) => {
       const customEvent = e as CustomEvent;
       this.showVictory(customEvent.detail);
+      this.achievementManager.check(GameEvent.GAME_VICTORY, {});
     });
 
     // Physics events
@@ -339,6 +361,29 @@ export class GameManager {
       const customEvent = e as CustomEvent;
       const { points, position } = customEvent.detail;
       this.addScore(points, true, position); // isCombo = true for chaining
+      this.achievementManager.check(GameEvent.OBJECT_DESTROYED, {
+        totalDestroyed: this.gameState.objectsDestroyed,
+      });
+    });
+
+    // Settings events
+    window.addEventListener('settings-close', () => this.uiManager.hideSettings());
+    window.addEventListener('music-volume-change', (e: Event) => {
+      const { value } = (e as CustomEvent).detail;
+      this.soundManager.setMusicVolume(value / 100);
+    });
+    window.addEventListener('sfx-volume-change', (e: Event) => {
+      const { value } = (e as CustomEvent).detail;
+      this.soundManager.setSFXVolume(value / 100);
+    });
+    window.addEventListener('quality-change', (e: Event) => {
+      const { level } = (e as CustomEvent).detail as { level: 'low' | 'medium' | 'high' };
+      this.performanceManager.setQualityLevel(level);
+      this.uiManager.showMessage(`Quality: ${level.toUpperCase()}`, 1500);
+    });
+    window.addEventListener('mute-toggle', () => {
+      const muted = this.soundManager.toggleMute();
+      this.uiManager.showMessage(muted ? 'Sound Muted' : 'Sound On', 1200);
     });
 
     // Optimize engine on window blur
@@ -481,7 +526,10 @@ export class GameManager {
   /**
    * Launch a tire with given power and angle
    */
-  public launchTire(power: number, angle: number, tireType: TireType = TireType.STANDARD): void {
+  public launchTire(power: number, angle: number, tireType?: TireType): void {
+    // Use selected tire type from launch control UI if not explicitly specified
+    const selectedType = tireType ?? this.launchControlUI.getSelectedTireType();
+
     // Check round manager for tire availability
     const currentRound = this.roundManager.getCurrentRound();
     if (currentRound && !this.roundManager.useTire()) {
@@ -505,7 +553,12 @@ export class GameManager {
       }
     }, 1200);
 
-    const tire = new Tire(tireType, this.scene, this.physicsManager, this.particleManager, this.screenEffects);
+    // Fire achievement check for first launch
+    this.achievementManager.check(GameEvent.TIRE_LAUNCHED, {
+      tireType: selectedType,
+    });
+
+    const tire = new Tire(selectedType, this.scene, this.physicsManager, this.particleManager, this.screenEffects);
 
     // Set launch position from current level layout
     tire.setPosition(this._currentLaunchPosition.clone());
@@ -599,6 +652,9 @@ export class GameManager {
       this.screenEffects.comboEffect(this.gameState.combo);
       this.soundManager.playSFX('combo_hit');
       this.uiManager.showMessage(`${this.gameState.combo}x COMBO!`, 1500);
+      this.achievementManager.check(GameEvent.COMBO_HIT, {
+        comboCount: this.gameState.combo,
+      });
     }
 
     // Screen shake based on impact

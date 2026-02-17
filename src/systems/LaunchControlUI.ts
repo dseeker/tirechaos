@@ -1,13 +1,43 @@
+import { TireType } from '../types';
+
 /**
  * LaunchControlUI - Interactive UI component for controlling tire launch parameters.
  * Provides sliders for power and angle, a LAUNCH button, and keyboard shortcuts.
  */
+
+// Display labels for each TireType
+const TIRE_LABELS: Record<TireType, string> = {
+  [TireType.STANDARD]:     'STANDARD',
+  [TireType.MONSTER_TRUCK]:'MONSTER',
+  [TireType.RACING_SLICK]: 'RACING',
+  [TireType.TRACTOR]:      'TRACTOR',
+  [TireType.SPARE]:        'SPARE',
+};
+
+// Stat arrays: [speed, mass, bounce] each 0–5
+const TIRE_STATS: Record<TireType, { speed: number; mass: number; bounce: number }> = {
+  [TireType.STANDARD]:     { speed: 3, mass: 2, bounce: 2 },
+  [TireType.MONSTER_TRUCK]:{ speed: 2, mass: 5, bounce: 1 },
+  [TireType.RACING_SLICK]: { speed: 5, mass: 1, bounce: 1 },
+  [TireType.TRACTOR]:      { speed: 2, mass: 4, bounce: 1 },
+  [TireType.SPARE]:        { speed: 4, mass: 1, bounce: 5 },
+};
+
+const TIRE_ORDER: TireType[] = [
+  TireType.STANDARD,
+  TireType.MONSTER_TRUCK,
+  TireType.RACING_SLICK,
+  TireType.TRACTOR,
+  TireType.SPARE,
+];
+
 export class LaunchControlUI {
   private container: HTMLElement | null = null;
 
   // Current values
   private power: number = 0.5;
   private angle: number = 45;
+  private selectedTireType: TireType = TireType.STANDARD;
 
   // Step sizes for keyboard adjustment
   private readonly POWER_STEP = 0.05;
@@ -98,6 +128,18 @@ export class LaunchControlUI {
           </div>
         </div>
 
+        <!-- Tire Type Selector -->
+        <div class="tire-selector">
+          <div class="launch-control__label" style="margin-bottom:8px;">
+            <span class="launch-control__label-text">TIRE TYPE</span>
+            <span class="launch-control__hint">T KEY</span>
+          </div>
+          <div class="tire-selector__buttons" id="lc-tire-buttons">
+            ${TIRE_ORDER.map(t => `<button class="tire-btn${t === TireType.STANDARD ? ' active' : ''}" data-tire="${t}" type="button">${TIRE_LABELS[t]}</button>`).join('')}
+          </div>
+          <div id="lc-tire-stats" class="tire-stats"></div>
+        </div>
+
         <!-- Trajectory preview arc -->
         <div class="launch-control__preview" aria-hidden="true">
           <svg
@@ -183,6 +225,46 @@ export class LaunchControlUI {
     launchBtn?.addEventListener('click', () => {
       this.triggerLaunch();
     });
+
+    this.bindTireSelector();
+  }
+
+  /**
+   * Attach click listeners to tire type buttons and render initial stats.
+   */
+  private bindTireSelector(): void {
+    const container = document.getElementById('lc-tire-buttons');
+    if (!container) return;
+    container.querySelectorAll<HTMLButtonElement>('.tire-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tireValue = btn.dataset.tire as TireType;
+        if (tireValue) {
+          this.selectedTireType = tireValue;
+          this.refreshTireSelector();
+        }
+      });
+    });
+    this.refreshTireSelector();
+  }
+
+  /**
+   * Update active button highlight and stat line for the selected tire type.
+   */
+  private refreshTireSelector(): void {
+    const container = document.getElementById('lc-tire-buttons');
+    if (container) {
+      container.querySelectorAll<HTMLButtonElement>('.tire-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tire === this.selectedTireType);
+      });
+    }
+
+    const statsEl = document.getElementById('lc-tire-stats');
+    if (statsEl) {
+      const s = TIRE_STATS[this.selectedTireType];
+      const dot = (filled: number) =>
+        '●'.repeat(filled) + '○'.repeat(5 - filled);
+      statsEl.textContent = `Speed: ${dot(s.speed)}  Mass: ${dot(s.mass)}  Bounce: ${dot(s.bounce)}`;
+    }
   }
 
   /**
@@ -491,6 +573,23 @@ export class LaunchControlUI {
    */
   public getAngle(): number {
     return this.angle;
+  }
+
+  /**
+   * Returns the currently selected tire type.
+   */
+  public getSelectedTireType(): TireType {
+    return this.selectedTireType;
+  }
+
+  /**
+   * Advances to the next tire type in the cycle (wraps around).
+   * Useful for binding to the T keyboard shortcut.
+   */
+  public cycleTireType(): void {
+    const idx = TIRE_ORDER.indexOf(this.selectedTireType);
+    this.selectedTireType = TIRE_ORDER[(idx + 1) % TIRE_ORDER.length];
+    this.refreshTireSelector();
   }
 
   /**

@@ -1,11 +1,8 @@
 /**
- * SoundManager - Web Audio API stub for TIRE CHAOS
+ * SoundManager - Web Audio API implementation for TIRE CHAOS
  *
- * Provides a complete interface for music and sound effects.
- * All methods are stubbed with TODO comments for future implementation.
- *
- * TODO: Integrate a full audio engine (e.g., Howler.js, Tone.js, or raw Web Audio API)
- *       once audio assets are available.
+ * Provides a complete interface for music and sound effects using procedural synthesis.
+ * All sounds are generated using oscillators, noise, and filters - no audio files required.
  */
 
 // ---------------------------------------------------------------------------
@@ -14,27 +11,23 @@
 
 /**
  * All named sound effects used throughout the game.
- * Each key maps to a logical audio event; the string value is used as the
- * asset identifier when loading real audio files.
- *
- * TODO: Replace placeholder string values with actual asset file paths,
- *       e.g. 'sounds/sfx/tire_launch.ogg'.
+ * Each key maps to a logical audio event synthesized procedurally.
  */
 export const SOUND_DEFINITIONS = {
   // Tire events
-  tire_launch: 'tire_launch',       // TODO: Woosh / catapult release
-  tire_impact: 'tire_impact',       // TODO: Thud / rubber slam on surface
+  tire_launch: 'tire_launch',       // Woosh / catapult release
+  tire_impact: 'tire_impact',       // Thud / rubber slam on surface
 
   // Destruction events
-  object_destroyed: 'object_destroyed', // TODO: Crash / shatter
-  combo_hit: 'combo_hit',               // TODO: Satisfying chime / power chord
+  object_destroyed: 'object_destroyed', // Crash / shatter
+  combo_hit: 'combo_hit',               // Satisfying chime / power chord
 
   // Round / game flow
-  round_complete: 'round_complete', // TODO: Fanfare / jingle
-  game_over: 'game_over',          // TODO: Deflation / sad trombone variant
+  round_complete: 'round_complete', // Fanfare / jingle
+  game_over: 'game_over',          // Deflation / sad trombone variant
 
   // UI
-  button_click: 'button_click',    // TODO: Short tick / pop
+  button_click: 'button_click',    // Short tick / pop
 } as const;
 
 /** Union of all valid SFX names derived from the definitions above. */
@@ -45,14 +38,12 @@ export type SoundName = keyof typeof SOUND_DEFINITIONS;
 // ---------------------------------------------------------------------------
 
 /**
- * Configuration used when (eventually) loading a sound asset.
- *
- * TODO: Expand with loop, sprite sheet offsets, decode priority, etc.
+ * Configuration used when synthesizing a sound.
  */
 export interface SoundConfig {
   /** Logical name identifying the sound. */
   name: SoundName;
-  /** Relative path to the audio file (populated when assets are ready). */
+  /** Relative path to the audio file (unused for synthesis). */
   filePath: string;
   /** Base volume in the range [0, 1]. */
   baseVolume: number;
@@ -71,59 +62,72 @@ export interface AudioState {
 }
 
 // ---------------------------------------------------------------------------
-// Placeholder sound configs
+// Sound configs
 // ---------------------------------------------------------------------------
 
 /**
- * Placeholder definitions for every named sound effect.
- * Mirrors SOUND_DEFINITIONS so callers have typed metadata.
- *
- * TODO: Fill in real filePath values once audio assets are produced.
+ * Configuration for every named sound effect.
  */
 export const SOUND_CONFIGS: Record<SoundName, SoundConfig> = {
   tire_launch: {
     name: 'tire_launch',
-    filePath: '', // TODO: 'sounds/sfx/tire_launch.ogg'
+    filePath: '',
     baseVolume: 0.8,
     loop: false,
   },
   tire_impact: {
     name: 'tire_impact',
-    filePath: '', // TODO: 'sounds/sfx/tire_impact.ogg'
+    filePath: '',
     baseVolume: 0.9,
     loop: false,
   },
   object_destroyed: {
     name: 'object_destroyed',
-    filePath: '', // TODO: 'sounds/sfx/object_destroyed.ogg'
+    filePath: '',
     baseVolume: 1.0,
     loop: false,
   },
   combo_hit: {
     name: 'combo_hit',
-    filePath: '', // TODO: 'sounds/sfx/combo_hit.ogg'
+    filePath: '',
     baseVolume: 0.85,
     loop: false,
   },
   round_complete: {
     name: 'round_complete',
-    filePath: '', // TODO: 'sounds/sfx/round_complete.ogg'
+    filePath: '',
     baseVolume: 1.0,
     loop: false,
   },
   game_over: {
     name: 'game_over',
-    filePath: '', // TODO: 'sounds/sfx/game_over.ogg'
+    filePath: '',
     baseVolume: 1.0,
     loop: false,
   },
   button_click: {
     name: 'button_click',
-    filePath: '', // TODO: 'sounds/sfx/button_click.ogg'
+    filePath: '',
     baseVolume: 0.6,
     loop: false,
   },
 };
+
+// ---------------------------------------------------------------------------
+// Helper types for music scheduling
+// ---------------------------------------------------------------------------
+
+interface MusicNode {
+  oscillator?: OscillatorNode;
+  gainNode?: GainNode;
+  filterNode?: BiquadFilterNode;
+  noiseSource?: AudioBufferSourceNode;
+}
+
+interface ScheduledEvent {
+  time: number;
+  action: () => void;
+}
 
 // ---------------------------------------------------------------------------
 // SoundManager class
@@ -140,96 +144,45 @@ export const SOUND_CONFIGS: Record<SoundName, SoundConfig> = {
  *     │    │    └─ <music source nodes>
  *     │    └─ sfxGainNode        (SFX volume)
  *     │         └─ <sfx source nodes>
- *
- * TODO: Instantiate and wire up these nodes once the AudioContext is
- *       created during initialisation.
  */
 export class SoundManager {
   // -------------------------------------------------------------------------
-  // Web Audio API nodes (all null until init() is called)
+  // Web Audio API nodes
   // -------------------------------------------------------------------------
 
-  /**
-   * Root Web Audio context.
-   * TODO: Create with `new AudioContext()` inside init().
-   */
   private audioContext: AudioContext | null = null;
-
-  /**
-   * Top-level gain node; setting gain to 0 implements global mute.
-   * TODO: Connect to audioContext.destination inside init().
-   */
   private masterGainNode: GainNode | null = null;
-
-  /**
-   * Dedicated gain node for background music.
-   * TODO: Connect masterGainNode -> musicGainNode -> music source.
-   */
   private musicGainNode: GainNode | null = null;
-
-  /**
-   * Dedicated gain node for sound effects.
-   * TODO: Connect masterGainNode -> sfxGainNode -> sfx sources.
-   */
   private sfxGainNode: GainNode | null = null;
 
   // -------------------------------------------------------------------------
   // Music state
   // -------------------------------------------------------------------------
 
-  /**
-   * Currently playing music source node.
-   * TODO: Store the AudioBufferSourceNode returned by
-   *       audioContext.createBufferSource() so it can be stopped cleanly.
-   */
-  private currentMusicSource: AudioBufferSourceNode | null = null;
-
-  /**
-   * Identifier of the music track currently loaded / playing.
-   * TODO: Use to avoid re-loading the same track.
-   */
+  private musicNodes: MusicNode[] = [];
   private currentMusicTrack: string | null = null;
+  private musicScheduler: number | null = null;
+  private musicStartTime: number = 0;
 
   // -------------------------------------------------------------------------
   // Volume / mute state
   // -------------------------------------------------------------------------
 
-  /** Normalised music volume in [0, 1]. */
   private musicVolume: number = 0.7;
-
-  /** Normalised SFX volume in [0, 1]. */
   private sfxVolume: number = 1.0;
-
-  /** Whether the audio system is globally muted. */
   private muted: boolean = false;
-
-  /**
-   * Volume stored before a mute call so it can be restored on unmute.
-   * TODO: Use when implementing smooth fade-in on unmute.
-   */
   private preMuteVolume: number = 1.0;
 
   // -------------------------------------------------------------------------
-  // Asset cache
+  // LocalStorage key
   // -------------------------------------------------------------------------
 
-  /**
-   * Decoded audio buffers keyed by SoundName.
-   * TODO: Populate in preload() by fetching and decoding each asset.
-   */
-  private sfxBuffers: Map<SoundName, AudioBuffer> = new Map();
-
-  /**
-   * Decoded audio buffers for music tracks, keyed by track identifier.
-   * TODO: Populate lazily or eagerly depending on memory budget.
-   */
-  private musicBuffers: Map<string, AudioBuffer> = new Map();
+  private readonly STORAGE_KEY = 'tireChaosAudio';
 
   // -------------------------------------------------------------------------
   // Initialisation flag
   // -------------------------------------------------------------------------
 
-  /** True once init() has completed successfully. */
   private initialised: boolean = false;
 
   // =========================================================================
@@ -245,14 +198,6 @@ export class SoundManager {
    *
    * Must be called from a user-gesture handler (click / keydown) to satisfy
    * browser autoplay policies.
-   *
-   * TODO: Implement the body of this method:
-   *   1. Create AudioContext.
-   *   2. Create masterGainNode, musicGainNode, sfxGainNode.
-   *   3. Connect: source -> sfxGainNode -> masterGainNode -> destination
-   *                         musicGainNode -> masterGainNode
-   *   4. Apply persisted volume/mute settings from localStorage.
-   *   5. Call preload() to fetch and decode all SFX assets.
    */
   public async init(): Promise<void> {
     if (this.initialised) {
@@ -260,117 +205,336 @@ export class SoundManager {
       return;
     }
 
-    // TODO: Uncomment and complete when implementing real audio:
-    //
-    // this.audioContext = new AudioContext();
-    //
-    // this.masterGainNode = this.audioContext.createGain();
-    // this.masterGainNode.gain.value = this.muted ? 0 : this.preMuteVolume;
-    // this.masterGainNode.connect(this.audioContext.destination);
-    //
-    // this.musicGainNode = this.audioContext.createGain();
-    // this.musicGainNode.gain.value = this.musicVolume;
-    // this.musicGainNode.connect(this.masterGainNode);
-    //
-    // this.sfxGainNode = this.audioContext.createGain();
-    // this.sfxGainNode.gain.value = this.sfxVolume;
-    // this.sfxGainNode.connect(this.masterGainNode);
-    //
-    // await this.preload();
+    try {
+      // Create AudioContext
+      this.audioContext = new AudioContext();
 
-    this.initialised = true;
-    console.log('[SoundManager] Initialised (stub — no audio loaded yet)');
+      // Create gain nodes
+      this.masterGainNode = this.audioContext.createGain();
+      this.masterGainNode.connect(this.audioContext.destination);
+
+      this.musicGainNode = this.audioContext.createGain();
+      this.musicGainNode.connect(this.masterGainNode);
+
+      this.sfxGainNode = this.audioContext.createGain();
+      this.sfxGainNode.connect(this.masterGainNode);
+
+      // Load persisted settings from localStorage
+      this.loadPersistedSettings();
+
+      // Apply current volume/mute state to gain nodes
+      this.masterGainNode.gain.value = this.muted ? 0 : this.preMuteVolume;
+      this.musicGainNode.gain.value = this.musicVolume;
+      this.sfxGainNode.gain.value = this.sfxVolume;
+
+      this.initialised = true;
+      console.log('[SoundManager] Initialised with Web Audio API (procedural synthesis)');
+    } catch (error) {
+      console.error('[SoundManager] Failed to initialise AudioContext:', error);
+      throw error;
+    }
   }
 
   /**
-   * Preload and decode all SFX defined in SOUND_CONFIGS.
-   *
-   * TODO: Implement:
-   *   1. Iterate SOUND_CONFIGS entries.
-   *   2. fetch(config.filePath) for entries with a non-empty filePath.
-   *   3. arrayBuffer = await response.arrayBuffer()
-   *   4. buffer = await this.audioContext!.decodeAudioData(arrayBuffer)
-   *   5. this.sfxBuffers.set(name, buffer)
-   *
-   * Consider showing a loading-progress callback so the UI can display a
-   * progress bar.
+   * Load persisted audio settings from localStorage.
    */
-  private async preload(): Promise<void> {
-    // TODO: Implement asset loading loop (see JSDoc above).
-    console.log('[SoundManager] preload() called (stub — nothing loaded)');
+  private loadPersistedSettings(): void {
+    try {
+      const stored = localStorage.getItem(this.STORAGE_KEY);
+      if (stored) {
+        const state: AudioState = JSON.parse(stored);
+        this.musicVolume = Math.max(0, Math.min(1, state.musicVolume ?? 0.7));
+        this.sfxVolume = Math.max(0, Math.min(1, state.sfxVolume ?? 1.0));
+        this.muted = state.isMuted ?? false;
+        this.preMuteVolume = this.muted ? 1.0 : this.masterGainNode?.gain.value ?? 1.0;
+        console.log('[SoundManager] Loaded persisted settings:', state);
+      }
+    } catch (error) {
+      console.warn('[SoundManager] Failed to load persisted settings:', error);
+    }
+  }
+
+  /**
+   * Save current audio settings to localStorage.
+   */
+  private savePersistedSettings(): void {
+    try {
+      const state = this.getAudioState();
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(state));
+    } catch (error) {
+      console.warn('[SoundManager] Failed to save settings:', error);
+    }
   }
 
   /**
    * Release all audio resources and close the AudioContext.
-   *
-   * TODO: Stop currentMusicSource, close audioContext, clear buffer maps.
    */
   public dispose(): void {
-    // TODO: this.currentMusicSource?.stop();
-    // TODO: await this.audioContext?.close();
-    this.sfxBuffers.clear();
-    this.musicBuffers.clear();
+    this.stopMusic(0);
+
+    if (this.audioContext) {
+      this.audioContext.close().catch(err => {
+        console.warn('[SoundManager] Error closing AudioContext:', err);
+      });
+    }
+
+    this.musicNodes = [];
     this.initialised = false;
     console.log('[SoundManager] Disposed');
   }
 
   // =========================================================================
-  // Music
+  // Music - Procedural generation
   // =========================================================================
 
   /**
-   * Start playing a background music track.
+   * Start playing procedurally generated background music.
    *
-   * @param trackId - Identifier / file path of the music track.
+   * @param trackId - Identifier for the music track (e.g., 'game_music').
    * @param loop    - Whether the track should loop (default true).
-   *
-   * TODO: Implement:
-   *   1. If trackId === currentMusicTrack, return early (already playing).
-   *   2. Stop any currently playing track via stopMusic().
-   *   3. Load / retrieve buffer from musicBuffers.
-   *   4. Create AudioBufferSourceNode, set loop, connect to musicGainNode.
-   *   5. source.start(0).
-   *   6. Store in currentMusicSource / currentMusicTrack.
-   *   7. Add a smooth fade-in via musicGainNode.gain.linearRampToValueAtTime.
    */
   public playMusic(trackId: string, loop: boolean = true): void {
-    if (!this.initialised) {
+    if (!this.initialised || !this.audioContext) {
       console.warn('[SoundManager] playMusic() called before init()');
       return;
     }
 
-    if (this.muted) {
-      console.log(`[SoundManager] playMusic('${trackId}') skipped — muted`);
-      return;
+    if (this.currentMusicTrack === trackId) {
+      return; // Already playing
     }
 
-    // TODO: Load and play the track (see JSDoc above).
-    console.log(`[SoundManager] playMusic('${trackId}', loop=${loop}) — stub`);
+    // Stop any currently playing music
+    this.stopMusic(0);
+
+    this.currentMusicTrack = trackId;
+    this.musicStartTime = this.audioContext.currentTime;
+
+    // Generate procedural music based on track ID
+    if (trackId === 'game_music') {
+      this.generateGameMusic(loop);
+    }
+
+    console.log(`[SoundManager] Playing procedural music: ${trackId}`);
+  }
+
+  /**
+   * Generate a looping ambient/energetic game track procedurally.
+   */
+  private generateGameMusic(loop: boolean): void {
+    if (!this.audioContext || !this.musicGainNode) return;
+
+    const ctx = this.audioContext;
+    const now = ctx.currentTime;
+    const bpm = 120;
+    const beatDuration = 60 / bpm;
+
+    // Create ambient pad (continuous sawtooth with heavy lowpass)
+    const padOsc = ctx.createOscillator();
+    const padFilter = ctx.createBiquadFilter();
+    const padGain = ctx.createGain();
+
+    padOsc.type = 'sawtooth';
+    padOsc.frequency.value = 110; // A2
+    padFilter.type = 'lowpass';
+    padFilter.frequency.value = 400;
+    padFilter.Q.value = 5;
+    padGain.gain.value = 0.15;
+
+    padOsc.connect(padFilter);
+    padFilter.connect(padGain);
+    padGain.connect(this.musicGainNode);
+
+    padOsc.start(now);
+    this.musicNodes.push({ oscillator: padOsc, filterNode: padFilter, gainNode: padGain });
+
+    // Schedule kick drum pattern (120 BPM)
+    this.scheduleKickPattern(now, beatDuration, loop);
+
+    // Schedule melody pattern
+    this.scheduleMelodyPattern(now, beatDuration, loop);
+  }
+
+  /**
+   * Schedule kick drum pattern using Web Audio API scheduling.
+   */
+  private scheduleKickPattern(startTime: number, beatDuration: number, loop: boolean): void {
+    if (!this.audioContext || !this.musicGainNode) return;
+
+    const ctx = this.audioContext;
+    const scheduleAhead = 0.5; // Schedule 0.5 seconds ahead
+    let nextKickTime = startTime;
+    let beatCount = 0;
+
+    const scheduleKicks = () => {
+      if (!this.audioContext || this.currentMusicTrack === null) return;
+
+      const currentTime = this.audioContext.currentTime;
+
+      // Schedule kicks up to scheduleAhead
+      while (nextKickTime < currentTime + scheduleAhead) {
+        this.synthesizeKick(nextKickTime);
+        nextKickTime += beatDuration;
+        beatCount++;
+      }
+
+      if (loop) {
+        this.musicScheduler = window.setTimeout(scheduleKicks, 100);
+      }
+    };
+
+    scheduleKicks();
+  }
+
+  /**
+   * Schedule melody pattern (pentatonic scale).
+   */
+  private scheduleMelodyPattern(startTime: number, beatDuration: number, loop: boolean): void {
+    if (!this.audioContext || !this.musicGainNode) return;
+
+    const ctx = this.audioContext;
+    const pentatonic = [261.63, 293.66, 329.63, 392.00, 440.00]; // C4, D4, E4, G4, A4
+    let melodyIndex = 0;
+    let nextNoteTime = startTime + beatDuration * 0.5; // Offset from kick
+
+    const scheduleMelody = () => {
+      if (!this.audioContext || this.currentMusicTrack === null) return;
+
+      const currentTime = this.audioContext.currentTime;
+
+      while (nextNoteTime < currentTime + 0.5) {
+        const freq = pentatonic[melodyIndex % pentatonic.length];
+        this.synthesizeMelodyNote(nextNoteTime, freq, beatDuration * 0.8);
+
+        melodyIndex++;
+        nextNoteTime += beatDuration;
+      }
+
+      if (loop && this.currentMusicTrack !== null) {
+        window.setTimeout(scheduleMelody, 100);
+      }
+    };
+
+    scheduleMelody();
+  }
+
+  /**
+   * Synthesize a kick drum sound.
+   */
+  private synthesizeKick(time: number): void {
+    if (!this.audioContext || !this.musicGainNode) return;
+
+    const ctx = this.audioContext;
+
+    // Kick: sine wave pitch drop + noise burst
+    const osc = ctx.createOscillator();
+    const oscGain = ctx.createGain();
+    const noise = this.createNoiseBuffer(0.05);
+    const noiseSource = ctx.createBufferSource();
+    const noiseGain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(150, time);
+    osc.frequency.exponentialRampToValueAtTime(60, time + 0.1);
+
+    oscGain.gain.setValueAtTime(0.4, time);
+    oscGain.gain.exponentialRampToValueAtTime(0.01, time + 0.2);
+
+    noiseSource.buffer = noise;
+    noiseGain.gain.setValueAtTime(0.3, time);
+    noiseGain.gain.exponentialRampToValueAtTime(0.01, time + 0.05);
+
+    osc.connect(oscGain);
+    oscGain.connect(this.musicGainNode);
+
+    noiseSource.connect(noiseGain);
+    noiseGain.connect(this.musicGainNode);
+
+    osc.start(time);
+    osc.stop(time + 0.2);
+    noiseSource.start(time);
+    noiseSource.stop(time + 0.05);
+  }
+
+  /**
+   * Synthesize a melody note.
+   */
+  private synthesizeMelodyNote(time: number, frequency: number, duration: number): void {
+    if (!this.audioContext || !this.musicGainNode) return;
+
+    const ctx = this.audioContext;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.value = frequency;
+
+    gain.gain.setValueAtTime(0, time);
+    gain.gain.linearRampToValueAtTime(0.08, time + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.01, time + duration);
+
+    osc.connect(gain);
+    gain.connect(this.musicGainNode);
+
+    osc.start(time);
+    osc.stop(time + duration);
   }
 
   /**
    * Stop the currently playing music track.
    *
    * @param fadeOutMs - Duration of fade-out in milliseconds (default 500 ms).
-   *
-   * TODO: Implement:
-   *   1. Fade out musicGainNode.gain over fadeOutMs using linearRampToValueAtTime.
-   *   2. After the fade, call currentMusicSource.stop() and set to null.
-   *   3. Reset musicGainNode.gain to musicVolume for the next track.
    */
   public stopMusic(fadeOutMs: number = 500): void {
-    if (!this.currentMusicSource) {
+    if (!this.currentMusicTrack || !this.audioContext || !this.musicGainNode) {
       return;
     }
 
-    // TODO: Fade out and stop (see JSDoc above).
-    this.currentMusicSource = null;
+    const ctx = this.audioContext;
+    const fadeOutSec = fadeOutMs / 1000;
+    const now = ctx.currentTime;
+
+    // Clear scheduler
+    if (this.musicScheduler !== null) {
+      clearTimeout(this.musicScheduler);
+      this.musicScheduler = null;
+    }
+
+    // Fade out music gain
+    if (fadeOutMs > 0) {
+      this.musicGainNode.gain.linearRampToValueAtTime(0.01, now + fadeOutSec);
+    } else {
+      this.musicGainNode.gain.setValueAtTime(0.01, now);
+    }
+
+    // Stop all music nodes
+    const stopTime = fadeOutMs > 0 ? now + fadeOutSec : now;
+    this.musicNodes.forEach(node => {
+      try {
+        if (node.oscillator) {
+          node.oscillator.stop(stopTime);
+        }
+        if (node.noiseSource) {
+          node.noiseSource.stop(stopTime);
+        }
+      } catch (e) {
+        // Already stopped or never started
+      }
+    });
+
+    // Clean up after fade
+    setTimeout(() => {
+      this.musicNodes = [];
+      if (this.musicGainNode && this.audioContext) {
+        this.musicGainNode.gain.setValueAtTime(this.musicVolume, this.audioContext.currentTime);
+      }
+    }, fadeOutMs + 50);
+
     this.currentMusicTrack = null;
-    console.log(`[SoundManager] stopMusic(fadeOutMs=${fadeOutMs}) — stub`);
+    console.log(`[SoundManager] Music stopped (fadeOut: ${fadeOutMs}ms)`);
   }
 
   // =========================================================================
-  // Sound effects
+  // Sound effects - Procedural synthesis
   // =========================================================================
 
   /**
@@ -378,16 +542,9 @@ export class SoundManager {
    *
    * @param soundName - Key from SOUND_DEFINITIONS (type-safe).
    * @param volume    - Optional per-play volume override in [0, 1].
-   *
-   * TODO: Implement:
-   *   1. Guard: initialised && !muted && sfxBuffers.has(soundName).
-   *   2. Create AudioBufferSourceNode from cached buffer.
-   *   3. Create a per-play GainNode to apply volume override.
-   *   4. Chain: sourceNode -> perPlayGain -> sfxGainNode.
-   *   5. source.start(0); source.onended = () => source.disconnect().
    */
   public playSFX(soundName: SoundName, volume: number = 1.0): void {
-    if (!this.initialised) {
+    if (!this.initialised || !this.audioContext || !this.sfxGainNode) {
       console.warn('[SoundManager] playSFX() called before init()');
       return;
     }
@@ -397,12 +554,301 @@ export class SoundManager {
     }
 
     const config = SOUND_CONFIGS[soundName];
+    const effectiveVolume = config.baseVolume * volume;
 
-    // TODO: Look up buffer, create source node, apply volume, and start.
-    console.log(
-      `[SoundManager] playSFX('${soundName}', volume=${volume}) — stub` +
-      ` | baseVolume=${config.baseVolume}`,
-    );
+    // Dispatch to appropriate synthesis function
+    switch (soundName) {
+      case 'tire_launch':
+        this.synthesizeTireLaunch(effectiveVolume);
+        break;
+      case 'tire_impact':
+        this.synthesizeTireImpact(effectiveVolume);
+        break;
+      case 'object_destroyed':
+        this.synthesizeObjectDestroyed(effectiveVolume);
+        break;
+      case 'combo_hit':
+        this.synthesizeComboHit(effectiveVolume);
+        break;
+      case 'round_complete':
+        this.synthesizeRoundComplete(effectiveVolume);
+        break;
+      case 'game_over':
+        this.synthesizeGameOver(effectiveVolume);
+        break;
+      case 'button_click':
+        this.synthesizeButtonClick(effectiveVolume);
+        break;
+    }
+  }
+
+  /**
+   * tire_launch: Ascending whoosh
+   * Start at 200Hz, ramp to 800Hz over 0.3s, sawtooth + bandpass, quick attack + long release
+   */
+  private synthesizeTireLaunch(volume: number): void {
+    if (!this.audioContext || !this.sfxGainNode) return;
+
+    const ctx = this.audioContext;
+    const now = ctx.currentTime;
+
+    const osc = ctx.createOscillator();
+    const filter = ctx.createBiquadFilter();
+    const gain = ctx.createGain();
+
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(200, now);
+    osc.frequency.linearRampToValueAtTime(800, now + 0.3);
+
+    filter.type = 'bandpass';
+    filter.frequency.value = 500;
+    filter.Q.value = 2;
+
+    // Envelope: quick attack (0.01s), long release (0.5s)
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(volume, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.sfxGainNode);
+
+    osc.start(now);
+    osc.stop(now + 0.5);
+  }
+
+  /**
+   * tire_impact: Thud
+   * 80Hz sine + noise burst, very short attack (0.005s), decay (0.15s)
+   */
+  private synthesizeTireImpact(volume: number): void {
+    if (!this.audioContext || !this.sfxGainNode) return;
+
+    const ctx = this.audioContext;
+    const now = ctx.currentTime;
+
+    // Low sine thud
+    const osc = ctx.createOscillator();
+    const oscGain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.value = 80;
+
+    oscGain.gain.setValueAtTime(0, now);
+    oscGain.gain.linearRampToValueAtTime(volume * 0.8, now + 0.005);
+    oscGain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+
+    osc.connect(oscGain);
+    oscGain.connect(this.sfxGainNode);
+
+    // Noise burst
+    const noise = this.createNoiseBuffer(0.1);
+    const noiseSource = ctx.createBufferSource();
+    const noiseGain = ctx.createGain();
+
+    noiseSource.buffer = noise;
+    noiseGain.gain.setValueAtTime(0, now);
+    noiseGain.gain.linearRampToValueAtTime(volume * 0.3, now + 0.005);
+    noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+
+    noiseSource.connect(noiseGain);
+    noiseGain.connect(this.sfxGainNode);
+
+    osc.start(now);
+    osc.stop(now + 0.15);
+    noiseSource.start(now);
+    noiseSource.stop(now + 0.1);
+  }
+
+  /**
+   * object_destroyed: Crash/shatter
+   * Noise burst filtered through lowpass at 2000Hz, attack (0.01s), decay (0.3s), slight pitch drop
+   */
+  private synthesizeObjectDestroyed(volume: number): void {
+    if (!this.audioContext || !this.sfxGainNode) return;
+
+    const ctx = this.audioContext;
+    const now = ctx.currentTime;
+
+    const noise = this.createNoiseBuffer(0.4);
+    const noiseSource = ctx.createBufferSource();
+    const filter = ctx.createBiquadFilter();
+    const gain = ctx.createGain();
+
+    noiseSource.buffer = noise;
+    noiseSource.playbackRate.setValueAtTime(1.0, now);
+    noiseSource.playbackRate.linearRampToValueAtTime(0.7, now + 0.3);
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(2000, now);
+    filter.frequency.exponentialRampToValueAtTime(500, now + 0.3);
+    filter.Q.value = 1;
+
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(volume, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+
+    noiseSource.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.sfxGainNode);
+
+    noiseSource.start(now);
+    noiseSource.stop(now + 0.3);
+  }
+
+  /**
+   * combo_hit: Chime
+   * Sine wave at 880Hz * combo_level, short attack (0.01s), medium release (0.3s)
+   * For simplicity, we'll use a base frequency and add harmonics
+   */
+  private synthesizeComboHit(volume: number): void {
+    if (!this.audioContext || !this.sfxGainNode) return;
+
+    const ctx = this.audioContext;
+    const sfxOut = this.sfxGainNode;
+    const now = ctx.currentTime;
+
+    // Create a bell-like sound with multiple harmonics
+    const frequencies = [880, 1320, 1760]; // Base + harmonics
+
+    frequencies.forEach((freq, index) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+
+      const harmonicVolume = volume / (index + 1);
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(harmonicVolume, now + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+
+      osc.connect(gain);
+      gain.connect(sfxOut);
+
+      osc.start(now);
+      osc.stop(now + 0.3);
+    });
+  }
+
+  /**
+   * round_complete: Fanfare
+   * 3-note sequence (C5→E5→G5, 0.15s each), sine waves
+   */
+  private synthesizeRoundComplete(volume: number): void {
+    if (!this.audioContext || !this.sfxGainNode) return;
+
+    const ctx = this.audioContext;
+    const sfxOut = this.sfxGainNode;
+    const now = ctx.currentTime;
+
+    const notes = [523.25, 659.25, 783.99]; // C5, E5, G5
+    const noteDuration = 0.15;
+
+    notes.forEach((freq, index) => {
+      const startTime = now + index * noteDuration;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+
+      gain.gain.setValueAtTime(0, startTime);
+      gain.gain.linearRampToValueAtTime(volume, startTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.01, startTime + noteDuration);
+
+      osc.connect(gain);
+      gain.connect(sfxOut);
+
+      osc.start(startTime);
+      osc.stop(startTime + noteDuration);
+    });
+  }
+
+  /**
+   * game_over: Sad descending
+   * 440Hz→220Hz sawtooth over 1.5s with tremolo
+   */
+  private synthesizeGameOver(volume: number): void {
+    if (!this.audioContext || !this.sfxGainNode) return;
+
+    const ctx = this.audioContext;
+    const now = ctx.currentTime;
+
+    const osc = ctx.createOscillator();
+    const tremolo = ctx.createOscillator();
+    const tremoloGain = ctx.createGain();
+    const gain = ctx.createGain();
+
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(440, now);
+    osc.frequency.exponentialRampToValueAtTime(220, now + 1.5);
+
+    // Tremolo effect
+    tremolo.type = 'sine';
+    tremolo.frequency.value = 5; // 5 Hz tremolo
+    tremoloGain.gain.value = 0.3;
+
+    tremolo.connect(tremoloGain);
+    tremoloGain.connect(gain.gain);
+
+    gain.gain.setValueAtTime(volume, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 1.5);
+
+    osc.connect(gain);
+    gain.connect(this.sfxGainNode);
+
+    osc.start(now);
+    tremolo.start(now);
+    osc.stop(now + 1.5);
+    tremolo.stop(now + 1.5);
+  }
+
+  /**
+   * button_click: Short click
+   * 1000Hz sine, 0.005s attack, 0.05s decay
+   */
+  private synthesizeButtonClick(volume: number): void {
+    if (!this.audioContext || !this.sfxGainNode) return;
+
+    const ctx = this.audioContext;
+    const now = ctx.currentTime;
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.value = 1000;
+
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(volume, now + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+
+    osc.connect(gain);
+    gain.connect(this.sfxGainNode);
+
+    osc.start(now);
+    osc.stop(now + 0.05);
+  }
+
+  /**
+   * Create a noise buffer for synthesis.
+   */
+  private createNoiseBuffer(duration: number): AudioBuffer {
+    if (!this.audioContext) {
+      throw new Error('AudioContext not initialized');
+    }
+
+    const sampleRate = this.audioContext.sampleRate;
+    const bufferSize = sampleRate * duration;
+    const buffer = this.audioContext.createBuffer(1, bufferSize, sampleRate);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+
+    return buffer;
   }
 
   // =========================================================================
@@ -413,15 +859,20 @@ export class SoundManager {
    * Set the background music volume.
    *
    * @param volume - Normalised value in [0, 1].
-   *
-   * TODO: Apply value to musicGainNode.gain with a short ramp for smoothness:
-   *   this.musicGainNode?.gain.linearRampToValueAtTime(volume, ctx.currentTime + 0.05)
    */
   public setMusicVolume(volume: number): void {
     this.musicVolume = Math.max(0, Math.min(1, volume));
 
-    // TODO: Apply to musicGainNode (see JSDoc above).
-    console.log(`[SoundManager] setMusicVolume(${this.musicVolume}) — stub`);
+    if (this.musicGainNode && this.audioContext) {
+      const ctx = this.audioContext;
+      const now = ctx.currentTime;
+      this.musicGainNode.gain.cancelScheduledValues(now);
+      this.musicGainNode.gain.setValueAtTime(this.musicGainNode.gain.value, now);
+      this.musicGainNode.gain.linearRampToValueAtTime(this.musicVolume, now + 0.05);
+    }
+
+    this.savePersistedSettings();
+    console.log(`[SoundManager] Music volume: ${this.musicVolume}`);
   }
 
   /**
@@ -435,15 +886,20 @@ export class SoundManager {
    * Set the sound effects volume.
    *
    * @param volume - Normalised value in [0, 1].
-   *
-   * TODO: Apply value to sfxGainNode.gain with a short ramp:
-   *   this.sfxGainNode?.gain.linearRampToValueAtTime(volume, ctx.currentTime + 0.05)
    */
   public setSFXVolume(volume: number): void {
     this.sfxVolume = Math.max(0, Math.min(1, volume));
 
-    // TODO: Apply to sfxGainNode (see JSDoc above).
-    console.log(`[SoundManager] setSFXVolume(${this.sfxVolume}) — stub`);
+    if (this.sfxGainNode && this.audioContext) {
+      const ctx = this.audioContext;
+      const now = ctx.currentTime;
+      this.sfxGainNode.gain.cancelScheduledValues(now);
+      this.sfxGainNode.gain.setValueAtTime(this.sfxGainNode.gain.value, now);
+      this.sfxGainNode.gain.linearRampToValueAtTime(this.sfxVolume, now + 0.05);
+    }
+
+    this.savePersistedSettings();
+    console.log(`[SoundManager] SFX volume: ${this.sfxVolume}`);
   }
 
   /**
@@ -459,9 +915,6 @@ export class SoundManager {
 
   /**
    * Mute all audio output instantly.
-   *
-   * TODO: Set masterGainNode.gain.value = 0 (no ramp — user expects instant
-   *       silence from a mute action).
    */
   public mute(): void {
     if (this.muted) {
@@ -471,15 +924,16 @@ export class SoundManager {
     this.preMuteVolume = this.masterGainNode?.gain.value ?? 1.0;
     this.muted = true;
 
-    // TODO: this.masterGainNode && (this.masterGainNode.gain.value = 0);
-    console.log('[SoundManager] mute() — stub');
+    if (this.masterGainNode) {
+      this.masterGainNode.gain.value = 0;
+    }
+
+    this.savePersistedSettings();
+    console.log('[SoundManager] Muted');
   }
 
   /**
    * Restore audio output to the pre-mute volume.
-   *
-   * TODO: Set masterGainNode.gain.value = preMuteVolume (or fade back in
-   *       gently with linearRampToValueAtTime).
    */
   public unmute(): void {
     if (!this.muted) {
@@ -488,8 +942,12 @@ export class SoundManager {
 
     this.muted = false;
 
-    // TODO: this.masterGainNode && (this.masterGainNode.gain.value = this.preMuteVolume);
-    console.log('[SoundManager] unmute() — stub');
+    if (this.masterGainNode) {
+      this.masterGainNode.gain.value = this.preMuteVolume;
+    }
+
+    this.savePersistedSettings();
+    console.log('[SoundManager] Unmuted');
   }
 
   /**
@@ -532,9 +990,6 @@ export class SoundManager {
    * Apply a previously persisted audio state.
    *
    * @param state - Audio state snapshot produced by getAudioState().
-   *
-   * TODO: Also save / restore state from localStorage so settings survive
-   *       page reloads.
    */
   public applyAudioState(state: AudioState): void {
     this.setMusicVolume(state.musicVolume);
@@ -546,9 +1001,8 @@ export class SoundManager {
       this.unmute();
     }
 
-    // TODO: Persist to localStorage:
-    //   localStorage.setItem('tireChaosAudioState', JSON.stringify(state));
-    console.log('[SoundManager] applyAudioState() — stub applied in-memory');
+    this.savePersistedSettings();
+    console.log('[SoundManager] Applied audio state:', state);
   }
 
   /**
@@ -556,11 +1010,15 @@ export class SoundManager {
    *
    * Browsers suspend AudioContext until a user gesture occurs. Call this
    * method inside any user-interaction handler.
-   *
-   * TODO: this.audioContext?.state === 'suspended' && await this.audioContext.resume()
    */
   public async resumeContext(): Promise<void> {
-    // TODO: Implement resume (see JSDoc above).
-    console.log('[SoundManager] resumeContext() — stub');
+    if (this.audioContext && this.audioContext.state === 'suspended') {
+      try {
+        await this.audioContext.resume();
+        console.log('[SoundManager] AudioContext resumed');
+      } catch (error) {
+        console.error('[SoundManager] Failed to resume AudioContext:', error);
+      }
+    }
   }
 }

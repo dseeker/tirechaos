@@ -101,6 +101,7 @@ export class UIManager {
     this.createMainMenu();
     this.createInstructionsScreen();
     this.createPauseMenu();
+    this.createSettingsScreen();
     this.createRoundEndScreen();
     this.createGameOverScreen();
   }
@@ -226,6 +227,7 @@ export class UIManager {
         <div class="menu-buttons">
           <button id="btn-resume" class="menu-button primary">RESUME</button>
           <button id="btn-restart" class="menu-button">RESTART</button>
+          <button id="btn-pause-settings" class="menu-button">SETTINGS</button>
           <button id="btn-quit" class="menu-button">QUIT TO MENU</button>
         </div>
         <div class="pause-tip">Press P to resume</div>
@@ -242,8 +244,89 @@ export class UIManager {
       this.dispatchGameEvent('restart-game');
     });
 
+    document.getElementById('btn-pause-settings')?.addEventListener('click', () => {
+      this.showSettings();
+    });
+
     document.getElementById('btn-quit')?.addEventListener('click', () => {
       this.dispatchGameEvent('quit-to-menu');
+    });
+  }
+
+  /**
+   * Create settings screen
+   */
+  private createSettingsScreen(): void {
+    const existingSettings = document.getElementById('settings-screen');
+    if (existingSettings) return;
+
+    const settings = document.createElement('div');
+    settings.id = 'settings-screen';
+    settings.className = 'settings-screen hidden';
+    settings.innerHTML = `
+      <div class="menu-container">
+        <h2>SETTINGS</h2>
+
+        <div class="settings-group">
+          <label class="settings-label" for="music-volume">MUSIC VOLUME</label>
+          <input id="music-volume" class="slider-control" type="range" min="0" max="100" value="70">
+        </div>
+
+        <div class="settings-group">
+          <label class="settings-label" for="sfx-volume">SFX VOLUME</label>
+          <input id="sfx-volume" class="slider-control" type="range" min="0" max="100" value="100">
+        </div>
+
+        <div class="settings-group">
+          <span class="settings-label">QUALITY</span>
+          <div class="quality-buttons">
+            <button class="quality-btn" data-level="low">LOW</button>
+            <button class="quality-btn active" data-level="medium">MEDIUM</button>
+            <button class="quality-btn" data-level="high">HIGH</button>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <span class="settings-label">AUDIO</span>
+          <button id="mute-toggle" class="mute-btn menu-button">🔇 MUTE</button>
+        </div>
+
+        <div class="menu-buttons">
+          <button id="btn-settings-back" class="menu-button primary">BACK</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(settings);
+
+    document.getElementById('music-volume')?.addEventListener('input', (e) => {
+      const value = parseInt((e.target as HTMLInputElement).value, 10);
+      window.dispatchEvent(new CustomEvent('music-volume-change', { detail: { value } }));
+    });
+
+    document.getElementById('sfx-volume')?.addEventListener('input', (e) => {
+      const value = parseInt((e.target as HTMLInputElement).value, 10);
+      window.dispatchEvent(new CustomEvent('sfx-volume-change', { detail: { value } }));
+    });
+
+    settings.querySelectorAll<HTMLButtonElement>('.quality-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        settings.querySelectorAll('.quality-btn').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        const level = btn.dataset.level as 'low' | 'medium' | 'high';
+        window.dispatchEvent(new CustomEvent('quality-change', { detail: { level } }));
+      });
+    });
+
+    const muteBtn = document.getElementById('mute-toggle');
+    muteBtn?.addEventListener('click', () => {
+      const isMuted = muteBtn.textContent?.includes('MUTE') && !muteBtn.textContent?.includes('UNMUTE');
+      muteBtn.textContent = isMuted ? '🔊 UNMUTE' : '🔇 MUTE';
+      window.dispatchEvent(new CustomEvent('mute-toggle'));
+    });
+
+    document.getElementById('btn-settings-back')?.addEventListener('click', () => {
+      window.dispatchEvent(new CustomEvent('settings-close'));
     });
   }
 
@@ -518,6 +601,20 @@ export class UIManager {
   }
 
   /**
+   * Show settings screen
+   */
+  public showSettings(): void {
+    document.getElementById('settings-screen')?.classList.remove('hidden');
+  }
+
+  /**
+   * Hide settings screen
+   */
+  public hideSettings(): void {
+    document.getElementById('settings-screen')?.classList.add('hidden');
+  }
+
+  /**
    * Show round end screen
    */
   public showRoundEnd(roundData: RoundData, isLastRound: boolean): void {
@@ -601,6 +698,7 @@ export class UIManager {
     document.getElementById('main-menu')?.remove();
     document.getElementById('instructions-screen')?.remove();
     document.getElementById('pause-menu')?.remove();
+    document.getElementById('settings-screen')?.remove();
     document.getElementById('round-end-screen')?.remove();
     document.getElementById('game-over-screen')?.remove();
   }
