@@ -14,11 +14,14 @@ import { PerformanceManager } from '../systems/PerformanceManager';
 import { BrowserManager } from '../systems/BrowserManager';
 import { SoundManager } from '../systems/SoundManager';
 import { LaunchControlUI } from '../systems/LaunchControlUI';
+import { TouchControlManager } from '../systems/TouchControlManager';
 import { Tire } from '../entities/Tire';
 import { GameState, TireType, LevelConfig, DEFAULT_POSTPROCESSING_CONFIG, CameraType } from '../types';
 import { DestructibleMaterial } from '../systems/DestructibleObjectFactory';
 import { LevelGenerator, getLevelLayout } from '../levels/LevelGenerator';
 import { AchievementManager, GameEvent } from '../systems/AchievementManager';
+import { SlowMotionManager } from '../systems/SlowMotionManager';
+import { LeaderboardManager, LeaderboardEntry } from '../systems/LeaderboardManager';
 
 /**
  * GameManager - Central game controller (Singleton pattern)
@@ -52,6 +55,9 @@ export class GameManager {
   // Launch control
   public launchControlUI: LaunchControlUI;
 
+  // Mobile touch controls
+  public touchControlManager: TouchControlManager;
+
   // Factories and managers
   public destructibleFactory: DestructibleObjectFactory;
   public environmentManager: EnvironmentManager;
@@ -61,6 +67,12 @@ export class GameManager {
 
   // Achievement system
   public achievementManager: AchievementManager;
+
+  // Slow-motion instant replay
+  public slowMotionManager: SlowMotionManager;
+
+  // Leaderboard persistence
+  public leaderboardManager: LeaderboardManager;
 
   // Rendering pipeline
   private defaultPipeline?: BABYLON.DefaultRenderingPipeline;
@@ -124,10 +136,12 @@ export class GameManager {
     this.keyboardManager = new KeyboardManager();
     this.particleManager = new ParticleManager(this.scene);
     this.screenEffects = new ScreenEffects(this.camera);
+    this.slowMotionManager = new SlowMotionManager(this.physicsManager, this.cameraDirector, this.uiManager);
     this.performanceManager = new PerformanceManager(this.engine);
     this.browserManager = new BrowserManager(canvas);
     this.soundManager = new SoundManager();
     this.achievementManager = new AchievementManager();
+    this.leaderboardManager = new LeaderboardManager();
 
     // Initialize factories
     this.destructibleFactory = new DestructibleObjectFactory(this.scene, this.physicsManager);
@@ -146,6 +160,9 @@ export class GameManager {
     this.launchControlUI = new LaunchControlUI((power, angle) => {
       this.launchTire(power, angle);
     });
+
+    // Initialize mobile touch controls (wired up per-game in startNewGame)
+    this.touchControlManager = new TouchControlManager();
 
     // Initialize game state
     this.gameState = {
@@ -364,6 +381,14 @@ export class GameManager {
       this.achievementManager.check(GameEvent.OBJECT_DESTROYED, {
         totalDestroyed: this.gameState.objectsDestroyed,
       });
+    });
+
+    // Leaderboard events
+    window.addEventListener('show-leaderboard', () => {
+      this.uiManager.showLeaderboard(this.leaderboardManager.getEntries());
+    });
+    window.addEventListener('leaderboard-close', () => {
+      this.uiManager.hideLeaderboard();
     });
 
     // Settings events
@@ -657,6 +682,11 @@ export class GameManager {
       });
     }
 
+    // Slow-motion instant replay on triple (or higher) combo
+    if (this.gameState.combo >= 3) {
+      this.slowMotionManager.trigger(2000, 0.25);
+    }
+
     // Screen shake based on impact
     const shakeIntensity = Math.min(points / 100, 1.0);
     this.screenEffects.shake(shakeIntensity * 0.5, 200);
@@ -762,6 +792,9 @@ export class GameManager {
         this.uiManager.updateCombo(combo, multiplier);
       }
     }
+
+    // Update slow-motion manager
+    this.slowMotionManager.update(deltaTime);
 
     // Render scene
     this.scene.render();
@@ -872,6 +905,12 @@ export class GameManager {
     this.launchControlUI.show();
     this.launchControlUI.setLaunchEnabled(true);
 
+    // Wire up mobile touch controls for this game session
+    const gameCanvas = this.engine.getRenderingCanvas() as HTMLCanvasElement;
+    if (gameCanvas) {
+      this.touchControlManager.init(gameCanvas, (p, a) => this.launchTire(p, a));
+    }
+
     // Initialize sound
     this.soundManager.init().catch(err => console.warn('Sound init failed:', err));
     this.soundManager.playMusic('game_music', true);
@@ -909,6 +948,9 @@ export class GameManager {
     // Hide launch control on menu
     this.launchControlUI.hide();
 
+    // Disable touch controls when returning to menu
+    this.touchControlManager.disable();
+
     // Pause game
     this.pause();
   }
@@ -931,11 +973,12 @@ export class GameManager {
 
     // Get stats
     const stats = this.scoringSystem.getStatistics();
-    const isNewHighScore = detail.totalScore > this.scoringSystem.getHighScore();
+    const totalScore = detail.totalScore || 0;
+    const isNewHighScore = totalScore > this.scoringSystem.getHighScore();
 
     // Show UI
     this.uiManager.showGameOver(
-      detail.totalScore || 0,
+      totalScore,
       detail.roundsCompleted || 0,
       detail.objectsDestroyed || 0,
       stats.maxCombo || 0,
@@ -945,6 +988,22 @@ export class GameManager {
 
     // Pause game
     this.pause();
+
+    // Prompt for name if score qualifies for leaderboard
+    if (totalScore > 0 && this.leaderboardManager.isTopScore(totalScore)) {
+      setTimeout(() => {
+        this.uiManager.showNameEntry(totalScore, (name: string) => {
+          const entry: LeaderboardEntry = {
+            name,
+            score: totalScore,
+            rounds: detail.roundsCompleted || 0,
+            combo: stats.maxCombo || 0,
+            date: new Date().toISOString(),
+          };
+          this.leaderboardManager.addEntry(entry);
+        });
+      }, 1500);
+    }
   }
 
   /**
@@ -965,11 +1024,12 @@ export class GameManager {
 
     // Get stats
     const stats = this.scoringSystem.getStatistics();
-    const isNewHighScore = detail.totalScore > this.scoringSystem.getHighScore();
+    const totalScore = detail.totalScore || 0;
+    const isNewHighScore = totalScore > this.scoringSystem.getHighScore();
 
     // Show UI (victory uses same screen, just different title)
     this.uiManager.showGameOver(
-      detail.totalScore || 0,
+      totalScore,
       detail.roundsCompleted || 5, // Victory means all 5 rounds complete
       detail.objectsDestroyed || 0,
       stats.maxCombo || 0,
@@ -979,6 +1039,22 @@ export class GameManager {
 
     // Pause game
     this.pause();
+
+    // Prompt for name if score qualifies for leaderboard
+    if (totalScore > 0 && this.leaderboardManager.isTopScore(totalScore)) {
+      setTimeout(() => {
+        this.uiManager.showNameEntry(totalScore, (name: string) => {
+          const entry: LeaderboardEntry = {
+            name,
+            score: totalScore,
+            rounds: detail.roundsCompleted || 5,
+            combo: stats.maxCombo || 0,
+            date: new Date().toISOString(),
+          };
+          this.leaderboardManager.addEntry(entry);
+        });
+      }, 1500);
+    }
   }
 
   /**

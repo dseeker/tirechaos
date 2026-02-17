@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script>
+    // Redirect to index with path encoded in query string (SPA fallback)
+    const path = window.location.pathname.replace('/tirechaos', '');
+    window.location.replace('/tirechaos/' + (path ? '?path=' + encodeURIComponent(path) : ''));
+  </script>
+</head>
+<body>Redirecting...</body>
+</html>

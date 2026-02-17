@@ -980,6 +980,212 @@ body {
 }
 
 /* ============================================
+   LEADERBOARD SCREEN
+   ============================================ */
+
+.leaderboard-container {
+  max-width: 720px;
+  width: 100%;
+}
+
+.leaderboard-table-wrapper {
+  max-height: 60vh;
+  overflow-y: auto;
+  margin: 20px 0;
+  border-radius: 8px;
+}
+
+.leaderboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: rgba(0, 0, 0, 0.75);
+  font-size: 15px;
+  letter-spacing: 1px;
+}
+
+.leaderboard-table thead th {
+  padding: 12px 14px;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  border-bottom: 2px solid var(--primary-color);
+  text-align: left;
+  background: rgba(0, 0, 0, 0.5);
+  position: sticky;
+  top: 0;
+}
+
+.leaderboard-table tbody tr {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  transition: background 0.2s ease;
+}
+
+.leaderboard-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.leaderboard-table tbody td {
+  padding: 12px 14px;
+  color: var(--text-light);
+  text-align: left;
+}
+
+.leaderboard-rank {
+  font-size: 18px;
+  font-weight: bold;
+  color: var(--text-dim) !important;
+  width: 50px;
+}
+
+.leaderboard-name {
+  font-size: 17px;
+  font-weight: bold;
+  letter-spacing: 2px;
+}
+
+.leaderboard-score {
+  color: var(--primary-color) !important;
+  font-size: 17px;
+  font-weight: bold;
+}
+
+.leaderboard-date {
+  color: var(--text-dim) !important;
+  font-size: 13px;
+}
+
+.leaderboard-empty {
+  text-align: center !important;
+  padding: 40px !important;
+  color: var(--text-dim) !important;
+  font-style: italic;
+  letter-spacing: 1px;
+}
+
+/* Gold highlight for #1 entry */
+.leaderboard-row--gold {
+  background: rgba(255, 215, 0, 0.08) !important;
+  border-bottom: 1px solid rgba(255, 215, 0, 0.25) !important;
+}
+
+.leaderboard-row--gold td {
+  color: #ffd700 !important;
+}
+
+.leaderboard-row--gold .leaderboard-rank {
+  color: #ffd700 !important;
+}
+
+.leaderboard-row--gold .leaderboard-score {
+  color: #ffd700 !important;
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+}
+
+/* ============================================
+   NAME ENTRY MODAL
+   ============================================ */
+
+.name-entry-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1500;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.name-entry-modal {
+  background: rgba(15, 15, 15, 0.95);
+  border: 2px solid #ffd700;
+  border-radius: 12px;
+  padding: 40px 48px;
+  text-align: center;
+  max-width: 420px;
+  width: 90%;
+  backdrop-filter: blur(16px);
+  box-shadow:
+    0 0 40px rgba(255, 215, 0, 0.3),
+    0 0 80px rgba(255, 215, 0, 0.1),
+    0 12px 40px rgba(0, 0, 0, 0.7);
+  animation: fadeIn 0.25s ease-out;
+}
+
+.name-entry-title {
+  margin: 0 0 12px 0;
+  font-size: 28px;
+  letter-spacing: 3px;
+  background: linear-gradient(90deg, #ffd700, #ff8c00, #ffd700);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: celebrate 0.6s ease-in-out infinite alternate;
+}
+
+.name-entry-score {
+  margin: 0 0 6px 0;
+  font-size: 36px;
+  font-weight: bold;
+  color: var(--primary-color);
+  text-shadow: 0 0 16px rgba(255, 107, 53, 0.5);
+}
+
+.name-entry-prompt {
+  margin: 0 0 18px 0;
+  font-size: 13px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.name-entry-input {
+  display: block;
+  width: 100%;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  font-family: 'Arial Black', 'Impact', sans-serif;
+  font-size: 22px;
+  font-weight: bold;
+  letter-spacing: 4px;
+  text-align: center;
+  text-transform: uppercase;
+  color: var(--text-light);
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid rgba(255, 215, 0, 0.45);
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  box-sizing: border-box;
+}
+
+.name-entry-input::placeholder {
+  color: rgba(255, 255, 255, 0.2);
+  letter-spacing: 3px;
+}
+
+.name-entry-input:focus {
+  border-color: #ffd700;
+  box-shadow: 0 0 14px rgba(255, 215, 0, 0.35);
+}
+
+.name-entry-submit {
+  width: 100%;
+  border-color: #ffd700 !important;
+  color: #ffd700 !important;
+}
+
+.name-entry-submit::before {
+  background: rgba(255, 215, 0, 0.15) !important;
+}
+
+.name-entry-submit:hover {
+  background: rgba(255, 215, 0, 0.2) !important;
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.4) !important;
+}
+
+/* ============================================
    ACHIEVEMENT TOAST
    ============================================ */
 
@@ -1064,4 +1270,56 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ============================================
+   SLOW MOTION OVERLAY
+   ============================================ */
+
+@keyframes slowMoFadeIn {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.85); }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+@keyframes slowMoFadeOut {
+  from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  to   { opacity: 0; transform: translate(-50%, -50%) scale(0.85); }
+}
+
+.slow-motion-overlay {
+  display: none;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 1800;
+
+  /* Typography */
+  font-family: 'Arial Black', 'Impact', sans-serif;
+  font-size: clamp(36px, 8vw, 80px);
+  font-weight: 900;
+  letter-spacing: 10px;
+  text-transform: uppercase;
+  white-space: nowrap;
+
+  /* Electric-blue colour with glow */
+  color: #00d9ff;
+  text-shadow:
+    0 0 10px rgba(0, 217, 255, 0.9),
+    0 0 30px rgba(0, 217, 255, 0.6),
+    0 0 60px rgba(0, 217, 255, 0.3);
+
+  /* Start transparent; animation plays when --active class is added */
+  opacity: 0;
+}
+
+.slow-motion-overlay--active {
+  animation: slowMoFadeIn 0.1s ease-out forwards;
+}
+
+/* When the class is removed the JS waits 300 ms before setting display:none,
+   so we play the fade-out during that window. */
+.slow-motion-overlay:not(.slow-motion-overlay--active) {
+  animation: slowMoFadeOut 0.3s ease-in forwards;
 }

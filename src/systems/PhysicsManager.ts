@@ -8,6 +8,7 @@ import { DEFAULT_PHYSICS_CONFIG, PhysicsConfig } from '../types';
  */
 export class PhysicsManager {
   public world: CANNON.World;
+  public timeScale: number = 1.0;
   private config: PhysicsConfig;
   private bodies: Map<BABYLON.Mesh, CANNON.Body> = new Map();
   private destructibleObjects: Map<
@@ -42,13 +43,11 @@ export class PhysicsManager {
     // Default material
     const defaultMaterial = new CANNON.Material('default');
 
-    // Tire material
-    const tireMaterial = new CANNON.Material('tire');
-
-    // Ground material
+    // Ground material (shared reference used for all tire-ground contacts)
     const groundMaterial = new CANNON.Material('ground');
 
-    // Tire-Ground contact
+    // Generic fallback tire material
+    const tireMaterial = new CANNON.Material('tire');
     const tireGroundContact = new CANNON.ContactMaterial(tireMaterial, groundMaterial, {
       friction: 0.8,
       restitution: 0.3,
@@ -56,6 +55,27 @@ export class PhysicsManager {
       contactEquationRelaxation: 3,
     });
     this.world.addContactMaterial(tireGroundContact);
+
+    // Per-tire-type contact materials with distinct restitution values.
+    // Material names match the `tire_${TireType}` pattern used in Tire.createPhysicsBody().
+    const perTypeMaterials: Array<{ name: string; friction: number; restitution: number }> = [
+      { name: 'tire_standard',      friction: 0.8,  restitution: 0.4  },
+      { name: 'tire_monster_truck', friction: 0.9,  restitution: 0.2  },
+      { name: 'tire_racing_slick',  friction: 0.95, restitution: 0.35 },
+      { name: 'tire_tractor',       friction: 1.0,  restitution: 0.15 },
+      { name: 'tire_spare',         friction: 0.6,  restitution: 0.8  },
+    ];
+
+    perTypeMaterials.forEach(({ name, friction, restitution }) => {
+      const mat = new CANNON.Material(name);
+      const contact = new CANNON.ContactMaterial(mat, groundMaterial, {
+        friction,
+        restitution,
+        contactEquationStiffness: 1e8,
+        contactEquationRelaxation: 3,
+      });
+      this.world.addContactMaterial(contact);
+    });
 
     // Default contact
     const defaultContact = new CANNON.ContactMaterial(defaultMaterial, defaultMaterial, {
@@ -272,8 +292,9 @@ export class PhysicsManager {
    * Update physics simulation
    */
   public update(deltaTime: number): void {
-    // Step physics simulation
-    const timeStep = Math.min(deltaTime, this.config.timeStep);
+    // Step physics simulation — apply timeScale for slow-motion support
+    const scaledDelta = deltaTime * this.timeScale;
+    const timeStep = Math.min(scaledDelta, this.config.timeStep);
     this.world.step(this.config.timeStep, timeStep, this.config.maxSubSteps);
 
     // Sync visual meshes with physics bodies

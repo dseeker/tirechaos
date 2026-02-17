@@ -1,4 +1,5 @@
 import { GameFlowState, UIElements, RoundData } from '../types/gameState';
+import { LeaderboardEntry } from './LeaderboardManager';
 
 /**
  * UIManager - Handles all UI elements, HUD updates, and screen overlays
@@ -104,6 +105,7 @@ export class UIManager {
     this.createSettingsScreen();
     this.createRoundEndScreen();
     this.createGameOverScreen();
+    this.createLeaderboardScreen();
   }
 
   /**
@@ -125,6 +127,7 @@ export class UIManager {
         <p class="game-tagline">Physics. Mayhem. Tires.</p>
         <div class="menu-buttons">
           <button id="btn-start" class="menu-button primary">START GAME</button>
+          <button id="btn-leaderboard" class="menu-button">LEADERBOARD</button>
           <button id="btn-instructions" class="menu-button">HOW TO PLAY</button>
           <button id="btn-settings" class="menu-button">SETTINGS</button>
         </div>
@@ -140,6 +143,10 @@ export class UIManager {
     // Add event listeners
     document.getElementById('btn-start')?.addEventListener('click', () => {
       this.dispatchGameEvent('start-game');
+    });
+
+    document.getElementById('btn-leaderboard')?.addEventListener('click', () => {
+      this.dispatchGameEvent('show-leaderboard');
     });
 
     document.getElementById('btn-instructions')?.addEventListener('click', () => {
@@ -689,6 +696,155 @@ export class UIManager {
     return this.currentState;
   }
 
+  // ─── Leaderboard ────────────────────────────────────────────────────────────
+
+  /**
+   * Build the leaderboard screen DOM (hidden by default).
+   */
+  private createLeaderboardScreen(): void {
+    if (document.getElementById('leaderboard-screen')) return;
+
+    const screen = document.createElement('div');
+    screen.id = 'leaderboard-screen';
+    screen.className = 'screen-overlay hidden';
+    screen.innerHTML = `
+      <div class="menu-container leaderboard-container">
+        <h2>LEADERBOARD</h2>
+        <div class="leaderboard-table-wrapper">
+          <table class="leaderboard-table">
+            <thead>
+              <tr>
+                <th>RANK</th>
+                <th>NAME</th>
+                <th>SCORE</th>
+                <th>ROUNDS</th>
+                <th>BEST COMBO</th>
+                <th>DATE</th>
+              </tr>
+            </thead>
+            <tbody id="leaderboard-tbody"></tbody>
+          </table>
+        </div>
+        <button id="btn-leaderboard-back" class="menu-button">BACK</button>
+      </div>
+    `;
+
+    document.body.appendChild(screen);
+
+    document.getElementById('btn-leaderboard-back')?.addEventListener('click', () => {
+      window.dispatchEvent(new CustomEvent('leaderboard-close'));
+    });
+  }
+
+  /**
+   * Populate and display the leaderboard screen.
+   */
+  public showLeaderboard(entries: LeaderboardEntry[]): void {
+    const screen = document.getElementById('leaderboard-screen');
+    if (!screen) return;
+
+    const tbody = document.getElementById('leaderboard-tbody');
+    if (tbody) {
+      if (entries.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="6" class="leaderboard-empty">No scores yet. Be the first!</td>
+          </tr>
+        `;
+      } else {
+        tbody.innerHTML = entries
+          .map((entry, index) => {
+            const rank = index + 1;
+            const isGold = rank === 1;
+            const dateStr = entry.date
+              ? new Date(entry.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' })
+              : '—';
+            return `
+              <tr class="leaderboard-row${isGold ? ' leaderboard-row--gold' : ''}">
+                <td class="leaderboard-rank">#${rank}</td>
+                <td class="leaderboard-name">${entry.name}</td>
+                <td class="leaderboard-score">${entry.score.toLocaleString()}</td>
+                <td>${entry.rounds}</td>
+                <td>${entry.combo}x</td>
+                <td class="leaderboard-date">${dateStr}</td>
+              </tr>
+            `;
+          })
+          .join('');
+      }
+    }
+
+    this.hideAllScreens();
+    screen.classList.remove('hidden');
+  }
+
+  /**
+   * Hide the leaderboard screen.
+   */
+  public hideLeaderboard(): void {
+    document.getElementById('leaderboard-screen')?.classList.add('hidden');
+  }
+
+  // ─── Name Entry Modal ────────────────────────────────────────────────────────
+
+  /**
+   * Show a modal prompting the player to enter their name for a high score.
+   */
+  public showNameEntry(score: number, onConfirm: (name: string) => void): void {
+    // Remove any existing modal
+    document.getElementById('name-entry-overlay')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'name-entry-overlay';
+    overlay.className = 'name-entry-overlay';
+    overlay.innerHTML = `
+      <div class="name-entry-modal" role="dialog" aria-modal="true" aria-labelledby="name-entry-heading">
+        <h2 id="name-entry-heading" class="name-entry-title">NEW HIGH SCORE!</h2>
+        <p class="name-entry-score">${score.toLocaleString()} pts</p>
+        <p class="name-entry-prompt">Enter your name:</p>
+        <input
+          id="name-entry-input"
+          class="name-entry-input"
+          type="text"
+          maxlength="12"
+          placeholder="YOUR NAME"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button id="name-entry-submit" class="menu-button primary name-entry-submit">SUBMIT</button>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const input = document.getElementById('name-entry-input') as HTMLInputElement;
+    const submitBtn = document.getElementById('name-entry-submit') as HTMLButtonElement;
+
+    // Force uppercase display
+    input.addEventListener('input', () => {
+      const pos = input.selectionStart ?? input.value.length;
+      input.value = input.value.toUpperCase();
+      input.setSelectionRange(pos, pos);
+    });
+
+    const submit = () => {
+      const name = (input.value.trim().toUpperCase() || 'UNKNOWN').slice(0, 12);
+      overlay.remove();
+      onConfirm(name);
+    };
+
+    submitBtn.addEventListener('click', submit);
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submit();
+    });
+
+    // Auto-focus the input
+    requestAnimationFrame(() => input.focus());
+  }
+
+  // ─── Clean up ────────────────────────────────────────────────────────────────
+
   /**
    * Clean up
    */
@@ -701,5 +857,7 @@ export class UIManager {
     document.getElementById('settings-screen')?.remove();
     document.getElementById('round-end-screen')?.remove();
     document.getElementById('game-over-screen')?.remove();
+    document.getElementById('leaderboard-screen')?.remove();
+    document.getElementById('name-entry-overlay')?.remove();
   }
 }

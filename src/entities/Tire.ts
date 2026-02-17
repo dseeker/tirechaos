@@ -36,6 +36,11 @@ export class Tire {
   private collisionHandler?: (event: { body: CANNON.Body; contact: CANNON.ContactEquation }) => void;
   private lastImpactTime: number = 0;
 
+  // Squash-and-stretch scale animation
+  private targetScale: BABYLON.Vector3 = new BABYLON.Vector3(1, 1, 1);
+  private currentScale: BABYLON.Vector3 = new BABYLON.Vector3(1, 1, 1);
+  private readonly SCALE_SPRING = 8; // spring constant, units per second
+
   constructor(
     type: TireType,
     scene: BABYLON.Scene,
@@ -99,6 +104,39 @@ export class Tire {
       if (this.particleManager) {
         this.particleManager.createImpactParticles(contactPoint, speed, isGround);
       }
+
+      // Squash-and-stretch deformation based on collision normal
+      const intensity = Math.min(speed / 20, 1.0);
+      // Contact normal from cannon-es (direction of collision)
+      const nx = event.contact.ni.x;
+      const ny = event.contact.ni.y;
+      const nz = event.contact.ni.z;
+
+      // Squash axis (perpendicular to motion) scales up; stretch (along normal) scales down
+      const squashScale = 1 + intensity * 0.4;
+      const stretchScale = 1 - intensity * 0.2;
+
+      // Apply deformation: normal axis gets stretch, perpendicular axes get squash
+      // Use the dominant axis of the collision normal to decide which component to stretch
+      const absNx = Math.abs(nx);
+      const absNy = Math.abs(ny);
+      const absNz = Math.abs(nz);
+
+      if (absNy >= absNx && absNy >= absNz) {
+        // Mostly vertical collision (ground bounce)
+        this.targetScale.set(squashScale, stretchScale, squashScale);
+      } else if (absNx >= absNy && absNx >= absNz) {
+        // Mostly horizontal X collision
+        this.targetScale.set(stretchScale, squashScale, squashScale);
+      } else {
+        // Mostly Z collision
+        this.targetScale.set(squashScale, squashScale, stretchScale);
+      }
+
+      // Reset target back to (1,1,1) after 80ms
+      setTimeout(() => {
+        this.targetScale.set(1, 1, 1);
+      }, 80);
 
       // Trigger screen shake on hard impacts
       if (this.screenEffects && speed >= HARD_IMPACT_THRESHOLD) {
@@ -195,10 +233,12 @@ export class Tire {
 
   /**
    * Create physics body for tire
+   * Uses a per-type material name so PhysicsManager can apply per-type restitution.
    */
   private createPhysicsBody(): CANNON.Body {
     const { radius, width, mass } = this.config.properties;
-    const tireMaterial = new CANNON.Material('tire');
+    // Use a tire-type-specific material name so per-type contact materials apply
+    const tireMaterial = new CANNON.Material(`tire_${this.config.type}`);
 
     return this.physicsManager.addTireBody(this.mesh, radius, width, mass, tireMaterial);
   }
@@ -300,7 +340,7 @@ export class Tire {
   /**
    * Update tire state
    */
-  public update(_deltaTime: number): void {
+  public update(deltaTime: number): void {
     if (!this.isLaunched) return;
 
     // Update trail
@@ -325,6 +365,14 @@ export class Tire {
       this.body.quaternion.z,
       this.body.quaternion.w,
     );
+
+    // Squash-and-stretch: spring currentScale toward targetScale each frame
+    this.currentScale = BABYLON.Vector3.Lerp(
+      this.currentScale,
+      this.targetScale,
+      Math.min(this.SCALE_SPRING * deltaTime, 1),
+    );
+    this.mesh.scaling.copyFrom(this.currentScale);
   }
 
   /**
