@@ -26,14 +26,18 @@ git push origin main
 ```
 
 The GitHub Actions workflow will:
-1. ✅ Run unit tests (`npm test`)
-2. 🏗️ Build the project with `GITHUB_PAGES=true` environment variable
-3. 📦 Split the bundle into optimized chunks:
+1. 📦 Install dependencies (`npm install` - no lock file required)
+2. ✅ Run unit tests (`npm test`)
+3. 🏗️ Build the project with `GITHUB_PAGES=true` environment variable
+4. 📦 Split the bundle into optimized chunks:
    - `vendor-babylon.js` - All Babylon.js packages (~3.5MB)
    - `vendor-cannon.js` - Cannon-es physics engine
    - `vendor.js` - Other dependencies
    - `game.js` - Your game code
-4. 🚀 Deploy the `dist/` folder to GitHub Pages
+5. 🚀 Deploy the `dist/` folder to GitHub Pages
+
+**Note:** This project intentionally excludes lock files (`package-lock.json`, `yarn.lock`) from version control.
+The workflow caches `node_modules` based on `package.json` hash for faster builds.
 
 ## Manual Deployment
 
