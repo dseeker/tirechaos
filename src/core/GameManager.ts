@@ -1,4 +1,5 @@
 import * as BABYLON from '@babylonjs/core';
+import * as CANNON from 'cannon-es';
 import { PhysicsManager } from '../systems/PhysicsManager';
 import { CameraDirector } from '../systems/CameraDirector';
 import { ScoringSystem } from '../systems/ScoringSystem';
@@ -105,6 +106,9 @@ export class GameManager {
     // Create scene
     this.scene = new BABYLON.Scene(this.engine);
     this.scene.clearColor = new BABYLON.Color4(0.53, 0.81, 0.92, 1.0); // Sky blue
+
+    // Expose CANNON globally for CannonJSPlugin (required in production builds)
+    (window as any).CANNON = CANNON;
 
     // Enable physics (Cannon.js)
     this.scene.enablePhysics(
