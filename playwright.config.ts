@@ -30,7 +30,9 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: 'npm run dev',
+    // In CI the project is pre-built; serve the dist/ folder with vite preview.
+    // Locally, use the dev server for fast feedback.
+    command: process.env.CI ? 'npx vite preview --port 3000' : 'npm run dev',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
   },
