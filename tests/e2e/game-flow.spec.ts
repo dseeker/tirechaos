@@ -134,8 +134,8 @@ test.describe('TIRE CHAOS - Complete Game Flow', () => {
     // Score starts at zero
     await expect(page.locator('#score-value')).toContainText('0');
 
-    // Combo starts at zero multiplier
-    await expect(page.locator('#combo-value')).toContainText('0x');
+    // Combo starts at zero multiplier (displayed as 0.0x)
+    await expect(page.locator('#combo-value')).toContainText('0.0x');
   });
 
   // -------------------------------------------------------------------------

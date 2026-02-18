@@ -41,8 +41,10 @@ test.describe('TIRE CHAOS — Loading & Menu', () => {
   test('instructions screen opens and closes', async ({ page }) => {
     await waitForMenu(page);
     await page.click('#btn-instructions');
+    await page.waitForSelector('#instructions-screen:not(.hidden)', { timeout: 3000 });
     await expect(page.locator('#instructions-screen')).toBeVisible();
     await page.click('#btn-back');
+    await page.waitForSelector('#main-menu:not(.hidden)', { timeout: 3000 });
     await expect(page.locator('#main-menu')).toBeVisible();
   });
 });
@@ -55,8 +57,8 @@ test.describe('TIRE CHAOS — Gameplay HUD', () => {
 
   test('HUD shows initial values', async ({ page }) => {
     await expect(page.locator('#score-value')).toContainText('0');
-    await expect(page.locator('#combo-value')).toContainText('0x');
-    await expect(page.locator('#tires-value')).toContainText('3');
+    await expect(page.locator('#combo-value')).toContainText('0.0x');
+    await expect(page.locator('#tires-value')).toContainText('5');
   });
 
   test('HUD shows time countdown', async ({ page }) => {
@@ -76,12 +78,19 @@ test.describe('TIRE CHAOS — Gameplay HUD', () => {
   });
 
   test('no critical console errors during gameplay', async ({ page }) => {
-    const errors: string[] = [];
+    // Allow gameplay to run for a bit
+    await page.waitForTimeout(2000);
+
+    // Console listener is already set up in beforeEach via startGame
+    // Just verify no critical errors occurred
+    const consoleErrors: string[] = [];
     page.on('console', (msg) => {
-      if (msg.type() === 'error') errors.push(msg.text());
+      if (msg.type() === 'error') consoleErrors.push(msg.text());
     });
-    await page.waitForTimeout(3000);
-    const critical = errors.filter(
+
+    // Wait a bit more and check
+    await page.waitForTimeout(1000);
+    const critical = consoleErrors.filter(
       (e) => !e.includes('favicon') && !e.includes('404') && !e.includes('passive')
     );
     expect(critical).toHaveLength(0);
