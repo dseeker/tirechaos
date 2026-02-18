@@ -396,8 +396,9 @@ export class Tire {
    */
   private createPhysicsBody(): CANNON.Body {
     const { radius, width, mass } = this.config.properties;
-    // Use a tire-type-specific material name so per-type contact materials apply
-    const tireMaterial = new CANNON.Material(`tire_${this.config.type}`);
+    // Use the shared material instance from PhysicsManager so the pre-registered
+    // contact material pairs (tire_X ↔ ground) are actually matched by cannon-es.
+    const tireMaterial = this.physicsManager.getTireMaterial(`tire_${this.config.type}`);
 
     return this.physicsManager.addTireBody(this.mesh, radius, width, mass, tireMaterial);
   }

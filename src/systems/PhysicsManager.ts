@@ -16,6 +16,11 @@ export class PhysicsManager {
     { mesh: BABYLON.Mesh; health: number; points: number }
   > = new Map();
 
+  // Shared material instances — contact materials are matched by object identity,
+  // so all bodies that should interact must reference the same instances.
+  private groundMaterial!: CANNON.Material;
+  private tireMaterialMap: Map<string, CANNON.Material> = new Map();
+
   constructor(config: PhysicsConfig = DEFAULT_PHYSICS_CONFIG) {
     this.config = config;
 
@@ -40,21 +45,20 @@ export class PhysicsManager {
    * Setup contact materials for different surface interactions
    */
   private setupContactMaterials(): void {
-    // Default material
-    const defaultMaterial = new CANNON.Material('default');
-
-    // Ground material (shared reference used for all tire-ground contacts)
-    const groundMaterial = new CANNON.Material('ground');
+    // Store on class so all bodies can reference the SAME instances.
+    // cannon-es matches ContactMaterial pairs by material.id (object identity),
+    // NOT by the name string.
+    this.groundMaterial = new CANNON.Material('ground');
 
     // Generic fallback tire material
     const tireMaterial = new CANNON.Material('tire');
-    const tireGroundContact = new CANNON.ContactMaterial(tireMaterial, groundMaterial, {
+    this.tireMaterialMap.set('tire', tireMaterial);
+    this.world.addContactMaterial(new CANNON.ContactMaterial(tireMaterial, this.groundMaterial, {
       friction: 0.8,
       restitution: 0.3,
       contactEquationStiffness: 1e8,
       contactEquationRelaxation: 3,
-    });
-    this.world.addContactMaterial(tireGroundContact);
+    }));
 
     // Per-tire-type contact materials with distinct restitution values.
     // Material names match the `tire_${TireType}` pattern used in Tire.createPhysicsBody().
@@ -68,21 +72,30 @@ export class PhysicsManager {
 
     perTypeMaterials.forEach(({ name, friction, restitution }) => {
       const mat = new CANNON.Material(name);
-      const contact = new CANNON.ContactMaterial(mat, groundMaterial, {
+      this.tireMaterialMap.set(name, mat);
+      this.world.addContactMaterial(new CANNON.ContactMaterial(mat, this.groundMaterial, {
         friction,
         restitution,
         contactEquationStiffness: 1e8,
         contactEquationRelaxation: 3,
-      });
-      this.world.addContactMaterial(contact);
+      }));
     });
 
     // Default contact
-    const defaultContact = new CANNON.ContactMaterial(defaultMaterial, defaultMaterial, {
+    const defaultMaterial = new CANNON.Material('default');
+    this.world.addContactMaterial(new CANNON.ContactMaterial(defaultMaterial, defaultMaterial, {
       friction: 0.5,
       restitution: 0.3,
-    });
-    this.world.addContactMaterial(defaultContact);
+    }));
+  }
+
+  /**
+   * Return the shared CANNON.Material for a given tire type name (e.g. 'tire_standard').
+   * Falls back to the generic 'tire' material if the type isn't registered.
+   * Tire bodies MUST use these instances so that contact materials fire correctly.
+   */
+  public getTireMaterial(name: string): CANNON.Material {
+    return this.tireMaterialMap.get(name) ?? this.tireMaterialMap.get('tire')!;
   }
 
   /**
@@ -100,9 +113,8 @@ export class PhysicsManager {
     baseY: number = 0,
   ): CANNON.Body {
     const shape = new CANNON.Heightfield(heights, { elementSize });
-    const groundMat = new CANNON.Material('ground');
 
-    const body = new CANNON.Body({ mass: 0, material: groundMat });
+    const body = new CANNON.Body({ mass: 0, material: this.groundMaterial });
     body.addShape(shape);
 
     // Heightfield local origin is at its first sample (xi=0, zi=0).
@@ -135,7 +147,7 @@ export class PhysicsManager {
     const body = new CANNON.Body({
       mass: 0, // Static body
       shape: shape,
-      material: new CANNON.Material('ground'),
+      material: this.groundMaterial,
     });
 
     // Match mesh position and rotation (Babylon uses same format)
@@ -214,7 +226,7 @@ export class PhysicsManager {
     const body = new CANNON.Body({
       mass: mass,
       shape: shape,
-      material: material || new CANNON.Material('tire'),
+      material: material || this.tireMaterialMap.get('tire')!,
       linearDamping: 0.1,
       angularDamping: 0.05,
     });
