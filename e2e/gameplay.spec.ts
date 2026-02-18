@@ -57,7 +57,7 @@ test.describe('TIRE CHAOS — Gameplay HUD', () => {
 
   test('HUD shows initial values', async ({ page }) => {
     await expect(page.locator('#score-value')).toContainText('0');
-    await expect(page.locator('#combo-value')).toContainText('0.0x');
+    await expect(page.locator('#combo-value')).toContainText('0x');
     await expect(page.locator('#tires-value')).toContainText('5');
   });
 

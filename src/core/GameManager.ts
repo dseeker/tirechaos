@@ -743,14 +743,22 @@ export class GameManager {
    * Clear all objects from scene
    */
   private clearScene(): void {
-    // Dispose all meshes except camera
-    this.scene.meshes.forEach((mesh) => {
-      if (mesh !== this.camera as any) {
+    // Use levelGenerator.clearLevel() to properly clean up destructible objects,
+    // environment props, and physics bodies via their own managers.  This ensures
+    // DestructibleObjectFactory.destroyAll() and EnvironmentManager.clear() are
+    // called so their internal tracking arrays are reset and no stale references
+    // cause console errors on the next level load.
+    this.levelGenerator.clearLevel();
+
+    // Dispose any remaining meshes not tracked by the level generator (e.g. tire
+    // meshes created by launchTire()).  Slice to avoid iterating a mutating array.
+    // isDisposed() guards against double-disposal of meshes already cleaned up
+    // by clearLevel() above.
+    this.scene.meshes.slice().forEach((mesh) => {
+      if (mesh !== this.camera as any && !mesh.isDisposed()) {
         mesh.dispose();
       }
     });
-
-    this.physicsManager.clear();
   }
 
   /**
