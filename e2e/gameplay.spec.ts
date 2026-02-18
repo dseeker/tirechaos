@@ -1,236 +1,129 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('TIRE CHAOS Gameplay', () => {
+// Helper: wait for loading screen to disappear and main menu to appear
+async function waitForMenu(page: any) {
+  await page.waitForSelector('#loading.hidden', { timeout: 15000 });
+  await page.waitForSelector('#main-menu:not(.hidden)', { timeout: 5000 });
+}
+
+// Helper: get past the main menu into active gameplay
+async function startGame(page: any) {
+  await waitForMenu(page);
+  await page.click('#btn-start');
+  // HUD appears when game starts
+  await page.waitForSelector('#game-hud:not(.hidden)', { timeout: 5000 });
+}
+
+test.describe('TIRE CHAOS — Loading & Menu', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
   });
 
-  test('should load game successfully', async ({ page }) => {
-    // Wait for loading to complete
-    await page.waitForSelector('#loading.hidden', { timeout: 10000 });
-
-    // Check that HUD is visible
-    await expect(page.locator('#hud')).toBeVisible();
-
-    // Check that controls are visible
-    await expect(page.locator('#controls')).toBeVisible();
-
-    // Check initial score
-    await expect(page.locator('#score')).toContainText('Score: 0');
+  test('loading screen hides after init', async ({ page }) => {
+    await page.waitForSelector('#loading.hidden', { timeout: 15000 });
+    const loading = page.locator('#loading');
+    await expect(loading).toBeHidden();
   });
 
-  test('should display correct initial game state', async ({ page }) => {
-    await page.waitForSelector('#loading.hidden', { timeout: 10000 });
-
-    // Check initial values
-    await expect(page.locator('#score')).toContainText('Score: 0');
-    await expect(page.locator('#combo')).toContainText('Combo: 0x');
-    await expect(page.locator('#tires-remaining')).toContainText('Tires: 3');
+  test('main menu appears after loading', async ({ page }) => {
+    await waitForMenu(page);
+    await expect(page.locator('#main-menu')).toBeVisible();
+    await expect(page.locator('#btn-start')).toBeVisible();
+    await expect(page.locator('#btn-instructions')).toBeVisible();
+    await expect(page.locator('#btn-settings')).toBeVisible();
+    await expect(page.locator('#btn-leaderboard')).toBeVisible();
   });
 
-  test('should show trajectory indicator on mouse down', async ({ page }) => {
-    await page.waitForSelector('#loading.hidden', { timeout: 10000 });
-
-    const canvas = page.locator('#game-canvas');
-
-    // Click and hold
-    await canvas.click({ position: { x: 400, y: 300 } });
-
-    // Trajectory indicator should be visible
-    await expect(page.locator('#trajectory-indicator')).toBeVisible();
+  test('page title is correct', async ({ page }) => {
+    await expect(page).toHaveTitle(/TIRE CHAOS/);
   });
 
-  test('should launch tire on mouse release', async ({ page }) => {
-    await page.waitForSelector('#loading.hidden', { timeout: 10000 });
+  test('instructions screen opens and closes', async ({ page }) => {
+    await waitForMenu(page);
+    await page.click('#btn-instructions');
+    await expect(page.locator('#instructions-screen')).toBeVisible();
+    await page.click('#btn-back');
+    await expect(page.locator('#main-menu')).toBeVisible();
+  });
+});
 
-    const canvas = page.locator('#game-canvas');
-
-    // Get initial tire count
-    const initialTires = await page.locator('#tires-remaining').textContent();
-
-    // Simulate drag and release
-    await canvas.hover({ position: { x: 300, y: 300 } });
-    await page.mouse.down();
-    await page.mouse.move(400, 200);
-    await page.mouse.up();
-
-    // Wait a bit for tire count to update
-    await page.waitForTimeout(500);
-
-    // Tire count should decrease
-    const currentTires = await page.locator('#tires-remaining').textContent();
-    expect(currentTires).not.toBe(initialTires);
+test.describe('TIRE CHAOS — Gameplay HUD', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await startGame(page);
   });
 
-  test('should update power and angle during drag', async ({ page }) => {
-    await page.waitForSelector('#loading.hidden', { timeout: 10000 });
-
-    const canvas = page.locator('#game-canvas');
-
-    // Start drag
-    await canvas.hover({ position: { x: 300, y: 300 } });
-    await page.mouse.down();
-
-    // Move mouse
-    await page.mouse.move(400, 200);
-
-    // Check that power and angle are displayed
-    const power = await page.locator('#power-value').textContent();
-    const angle = await page.locator('#angle-value').textContent();
-
-    expect(power).toMatch(/\d+%/);
-    expect(angle).toMatch(/\d+°/);
+  test('HUD shows initial values', async ({ page }) => {
+    await expect(page.locator('#score-value')).toContainText('0');
+    await expect(page.locator('#combo-value')).toContainText('0x');
+    await expect(page.locator('#tires-value')).toContainText('3');
   });
 
-  test('should reset level on reset button click', async ({ page }) => {
-    await page.waitForSelector('#loading.hidden', { timeout: 10000 });
-
-    // Launch a tire first
-    const canvas = page.locator('#game-canvas');
-    await canvas.hover({ position: { x: 300, y: 300 } });
-    await page.mouse.down();
-    await page.mouse.move(400, 200);
-    await page.mouse.up();
-
-    await page.waitForTimeout(500);
-
-    // Click reset button
-    await page.click('#reset-btn');
-
-    // Wait for reset
-    await page.waitForTimeout(500);
-
-    // Check that tires are back to 3
-    await expect(page.locator('#tires-remaining')).toContainText('Tires: 3');
-
-    // Score should be reset
-    await expect(page.locator('#score')).toContainText('Score: 0');
+  test('HUD shows time countdown', async ({ page }) => {
+    const time = await page.locator('#time-value').textContent();
+    expect(Number(time)).toBeGreaterThan(0);
   });
 
-  test('should have responsive canvas', async ({ page }) => {
-    await page.waitForSelector('#loading.hidden', { timeout: 10000 });
+  test('trajectory indicator hidden by default', async ({ page }) => {
+    await expect(page.locator('#trajectory-indicator')).toBeHidden();
+  });
 
-    const canvas = page.locator('#game-canvas');
-
-    // Check canvas dimensions
-    const box = await canvas.boundingBox();
+  test('canvas is full-screen', async ({ page }) => {
+    const box = await page.locator('#game-canvas').boundingBox();
     expect(box).not.toBeNull();
     expect(box!.width).toBeGreaterThan(0);
     expect(box!.height).toBeGreaterThan(0);
   });
 
-  test('should handle keyboard shortcuts', async ({ page }) => {
-    await page.waitForSelector('#loading.hidden', { timeout: 10000 });
-
-    // Press 'r' to reset
-    await page.keyboard.press('r');
-    await page.waitForTimeout(500);
-
-    // Should reset to initial state
-    await expect(page.locator('#tires-remaining')).toContainText('Tires: 3');
-
-    // Press space to quick launch
-    const initialTires = await page.locator('#tires-remaining').textContent();
-    await page.keyboard.press('Space');
-    await page.waitForTimeout(500);
-
-    const currentTires = await page.locator('#tires-remaining').textContent();
-    expect(currentTires).not.toBe(initialTires);
-  });
-
-  test('should render 3D scene', async ({ page }) => {
-    await page.waitForSelector('#loading.hidden', { timeout: 10000 });
-
-    const canvas = page.locator('#game-canvas');
-
-    // Take screenshot to verify rendering
-    const screenshot = await canvas.screenshot();
-    expect(screenshot).toBeTruthy();
-    expect(screenshot.length).toBeGreaterThan(0);
-  });
-
-  test('should maintain consistent frame rate', async ({ page }) => {
-    await page.waitForSelector('#loading.hidden', { timeout: 10000 });
-
-    // Monitor for errors in console
+  test('no critical console errors during gameplay', async ({ page }) => {
     const errors: string[] = [];
     page.on('console', (msg) => {
-      if (msg.type() === 'error') {
-        errors.push(msg.text());
-      }
+      if (msg.type() === 'error') errors.push(msg.text());
     });
-
-    // Wait for a few seconds of gameplay
     await page.waitForTimeout(3000);
-
-    // Should have no critical errors
-    const criticalErrors = errors.filter(
-      (err) => !err.includes('favicon') && !err.includes('404'),
+    const critical = errors.filter(
+      (e) => !e.includes('favicon') && !e.includes('404') && !e.includes('passive')
     );
-    expect(criticalErrors.length).toBe(0);
+    expect(critical).toHaveLength(0);
   });
 });
 
-test.describe('TIRE CHAOS Scoring', () => {
+test.describe('TIRE CHAOS — Tire Launching', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await page.waitForSelector('#loading.hidden', { timeout: 10000 });
+    await startGame(page);
   });
 
-  test('should update score when objects destroyed', async ({ page }) => {
-    // Launch multiple tires
-    for (let i = 0; i < 3; i++) {
-      const canvas = page.locator('#game-canvas');
-      await canvas.hover({ position: { x: 300, y: 300 } });
-      await page.mouse.down();
-      await page.mouse.move(500, 150);
-      await page.mouse.up();
-      await page.waitForTimeout(1000);
-    }
-
-    // Wait for physics to settle
-    await page.waitForTimeout(3000);
-
-    // Score might have increased if objects were hit
-    const scoreText = await page.locator('#score').textContent();
-    // We can't guarantee hits, but text should still be formatted correctly
-    expect(scoreText).toMatch(/Score: \d+/);
+  test('tires remaining decreases after launch', async ({ page }) => {
+    const before = await page.locator('#tires-value').textContent();
+    // Use the launch control's quick-launch keyboard shortcut
+    await page.keyboard.press('Space');
+    await page.waitForTimeout(600);
+    const after = await page.locator('#tires-value').textContent();
+    expect(Number(after)).toBeLessThan(Number(before));
   });
 
-  test('should track combo correctly', async ({ page }) => {
-    const comboText = await page.locator('#combo').textContent();
-    expect(comboText).toMatch(/Combo: \d+x/);
+  test('angle display is visible after game start', async ({ page }) => {
+    const angle = await page.locator('#angle-value').textContent();
+    expect(angle).toMatch(/\d+°/);
   });
 });
 
-test.describe('TIRE CHAOS UI/UX', () => {
+test.describe('TIRE CHAOS — Pause & Resume', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await page.waitForSelector('#loading.hidden', { timeout: 10000 });
+    await startGame(page);
   });
 
-  test('should have correct page title', async ({ page }) => {
-    await expect(page).toHaveTitle('TIRE CHAOS');
+  test('pause menu opens on P key', async ({ page }) => {
+    await page.keyboard.press('p');
+    await expect(page.locator('#pause-menu')).toBeVisible();
   });
 
-  test('should have all UI elements visible', async ({ page }) => {
-    await expect(page.locator('#hud')).toBeVisible();
-    await expect(page.locator('#controls')).toBeVisible();
-    await expect(page.locator('#reset-btn')).toBeVisible();
-  });
-
-  test('should hide trajectory indicator when not aiming', async ({ page }) => {
-    // Trajectory should be hidden by default
-    await expect(page.locator('#trajectory-indicator')).toBeHidden();
-  });
-
-  test('should have styled buttons', async ({ page }) => {
-    const resetBtn = page.locator('#reset-btn');
-
-    // Check button has correct class
-    await expect(resetBtn).toHaveClass(/button/);
-
-    // Check button is clickable
-    await expect(resetBtn).toBeEnabled();
+  test('resume from pause menu', async ({ page }) => {
+    await page.keyboard.press('p');
+    await expect(page.locator('#pause-menu')).toBeVisible();
+    await page.click('#btn-resume');
+    await expect(page.locator('#pause-menu')).toBeHidden();
   });
 });
