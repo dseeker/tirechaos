@@ -67,6 +67,29 @@ Note: The preview server will serve from `/` not `/tirechaos/`, so some paths ma
 
 ## Troubleshooting
 
+### "Branch is not allowed to deploy to github-pages" (environment protection error)
+
+This is the most common first-time failure. GitHub automatically creates a `github-pages`
+environment with branch-protection rules that may not include `main`.
+
+**Fix — two options (pick one):**
+
+**Option A — Recommended: remove the restriction entirely**
+1. In your repo → **Settings** → **Environments** → click **github-pages**
+2. Under **Deployment branches and tags** → change to **No restriction**
+3. Click **Save protection rules**
+4. Re-run the failed workflow from the **Actions** tab → **Re-run all jobs**
+
+**Option B — allow only `main`**
+1. In your repo → **Settings** → **Environments** → click **github-pages**
+2. Under **Deployment branches and tags** → **Add deployment branch or tag rule**
+3. Enter `main` → **Add rule** → **Save protection rules**
+4. Re-run the failed workflow
+
+> If you don't see a `github-pages` environment yet, first complete the
+> **Pages source** step below — GitHub creates the environment automatically
+> when you switch the source to "GitHub Actions".
+
 ### Deployment Fails
 
 1. Check the **Actions** tab to see the error logs
