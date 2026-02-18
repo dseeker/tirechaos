@@ -2,31 +2,32 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
+# Grant the GITHUB_TOKEN the minimum scopes needed for Pages deployment
 permissions:
   contents: read
   pages: write
   id-token: write
 
+# Allow only one concurrent deployment; do not cancel in-progress runs
 concurrency:
   group: "pages"
   cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
+  # ── 1. Build ────────────────────────────────────────────────────────────────
+  # Runs on every push. No environment declaration here — only the deploy job
+  # gets the "github-pages" environment so branch-protection rules only apply
+  # to the actual deployment step, not the build.
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -39,18 +40,30 @@ jobs:
         run: npm test
 
       - name: Build for GitHub Pages
-        run: GITHUB_PAGES=true npm run build
+        run: npm run build
         env:
           GITHUB_PAGES: 'true'
 
-      - name: Setup Pages
+      - name: Configure Pages
         uses: actions/configure-pages@v4
 
-      - name: Upload artifact
+      - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: './dist'
 
+  # ── 2. Deploy ───────────────────────────────────────────────────────────────
+  # Separate job that references the "github-pages" environment.
+  # GitHub's branch-protection rules for that environment are evaluated here,
+  # not in the build job. This is the canonical pattern required by
+  # actions/deploy-pages.
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
