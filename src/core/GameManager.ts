@@ -1,5 +1,4 @@
 import * as BABYLON from '@babylonjs/core';
-import * as CANNON from 'cannon-es';
 import { PhysicsManager } from '../systems/PhysicsManager';
 import { CameraDirector } from '../systems/CameraDirector';
 import { ScoringSystem } from '../systems/ScoringSystem';
@@ -17,7 +16,7 @@ import { SoundManager } from '../systems/SoundManager';
 import { LaunchControlUI } from '../systems/LaunchControlUI';
 import { TouchControlManager } from '../systems/TouchControlManager';
 import { Tire } from '../entities/Tire';
-import { GameState, TireType, LevelConfig, DEFAULT_POSTPROCESSING_CONFIG, CameraType } from '../types';
+import { GameState, TireType, LevelConfig, DEFAULT_POSTPROCESSING_CONFIG, CameraType, TIRE_CONFIGS } from '../types';
 import { DestructibleMaterial } from '../systems/DestructibleObjectFactory';
 import { LevelGenerator, getLevelLayout } from '../levels/LevelGenerator';
 import { AchievementManager, GameEvent } from '../systems/AchievementManager';
@@ -86,6 +85,8 @@ export class GameManager {
 
   // Launch position set by the current level layout
   private _currentLaunchPosition: BABYLON.Vector3 = new BABYLON.Vector3(-15, 2, 0);
+  /** Terrain surface Y at the launch XZ position, set by loadLevelForRound(). */
+  private _launchTerrainSurfaceY: number = 0;
 
   // Performance tracking
   private lastTime: number = 0;
@@ -106,15 +107,6 @@ export class GameManager {
     // Create scene
     this.scene = new BABYLON.Scene(this.engine);
     this.scene.clearColor = new BABYLON.Color4(0.53, 0.81, 0.92, 1.0); // Sky blue
-
-    // Expose CANNON globally for CannonJSPlugin (required in production builds)
-    (window as any).CANNON = CANNON;
-
-    // Enable physics (Cannon.js)
-    this.scene.enablePhysics(
-      new BABYLON.Vector3(0, -9.82, 0),
-      new BABYLON.CannonJSPlugin()
-    );
 
     // Setup camera
     this.camera = new BABYLON.UniversalCamera(
@@ -599,8 +591,16 @@ export class GameManager {
 
     const tire = new Tire(selectedType, this.scene, this.physicsManager, this.particleManager, this.screenEffects);
 
-    // Set launch position on terrain surface + tire radius
-    tire.setPosition(this._currentLaunchPosition.clone());
+    // Place tire on terrain surface using the correct radius for the selected type.
+    // Using TIRE_CONFIGS here avoids spawning a monster truck (r=0.8) halfway inside
+    // the terrain because loadLevelForRound() couldn't know the type in advance.
+    const tireRadius = TIRE_CONFIGS[selectedType].properties.radius;
+    const launchPos = new BABYLON.Vector3(
+      this._currentLaunchPosition.x,
+      this._launchTerrainSurfaceY + tireRadius + 0.1,
+      this._currentLaunchPosition.z,
+    );
+    tire.setPosition(launchPos);
 
     // Compute release velocity: direction is azimuth from +X (downhill).
     // The tire rolls DOWNHILL (+X direction) with a small sideways deviation.
@@ -1159,9 +1159,9 @@ export class GameManager {
     const lx = layout.launchPosition.x;
     const lz = layout.launchPosition.z;
     const surfaceY = this.levelGenerator.getTerrainSurfaceY(lx, lz);
-    // Lift by one tire radius so the tire sits on the surface, not inside it
-    const tireRadius = 0.4;
-    this._currentLaunchPosition = new BABYLON.Vector3(lx, surfaceY + tireRadius + 0.1, lz);
+    // Store terrain surface Y; the actual tire Y is computed per-type in launchTire().
+    this._launchTerrainSurfaceY = surfaceY;
+    this._currentLaunchPosition = new BABYLON.Vector3(lx, surfaceY, lz);
 
     // Position camera behind the hilltop, looking downhill (+X direction)
     this.positionCameraForHill(lx, lz, surfaceY);
@@ -1175,7 +1175,7 @@ export class GameManager {
     console.log(
       `GameManager: loaded level ${layout.roundNumber} "${layout.name}" – ` +
       `${layout.objects.length} objects, ${layout.props.length} props – ` +
-      `launch at (${lx}, ${(surfaceY + tireRadius).toFixed(1)}, ${lz})`,
+      `launch XZ (${lx}, ${lz}) surfaceY=${surfaceY.toFixed(1)}`,
     );
   }
 

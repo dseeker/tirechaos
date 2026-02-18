@@ -400,7 +400,16 @@ export class Tire {
     // contact material pairs (tire_X ↔ ground) are actually matched by cannon-es.
     const tireMaterial = this.physicsManager.getTireMaterial(`tire_${this.config.type}`);
 
-    return this.physicsManager.addTireBody(this.mesh, radius, width, mass, tireMaterial);
+    const body = this.physicsManager.addTireBody(this.mesh, radius, width, mass, tireMaterial);
+
+    // Apply per-type damping from TIRE_CONFIGS (addTireBody uses generic defaults).
+    body.linearDamping  = this.config.properties.linearDamping;
+    body.angularDamping = this.config.properties.angularDamping;
+
+    // Never sleep: a tire rolling slowly down a gentle slope should not freeze.
+    body.allowSleep = false;
+
+    return body;
   }
 
   /**
@@ -517,6 +526,26 @@ export class Tire {
     if (this.mesh.position.y < -50) {
       console.log('🌊 Tire fell off the map!');
       this.destroy();
+    }
+
+    // --- Rolling-without-slip maintenance ---
+    // At launch the angular velocity satisfies omega = v/r exactly, but after the
+    // first bounce or terrain irregularity cannon-es friction alone cannot maintain
+    // the constraint.  Apply a soft per-frame correction (blend factor 0.2) that
+    // steers omega toward the no-slip target without fighting the solver abruptly.
+    // The tire axle is along world Z (rotationQuaternion = Rx(PI/2)), so:
+    //   omega_x = vz / r   (rolling in Z direction)
+    //   omega_z = -vx / r  (rolling in X direction)
+    if (this.isLaunched) {
+      const radius = this.config.properties.radius;
+      const vx = this.body.velocity.x;
+      const vz = this.body.velocity.z;
+      const blend = 0.2; // soft correction — doesn't fight the solver
+      this.body.angularVelocity.x += (vz / radius - this.body.angularVelocity.x) * blend;
+      this.body.angularVelocity.z += (-vx / radius - this.body.angularVelocity.z) * blend;
+      // Lateral yaw damping: suppress spinning around the vertical axis (tire drifting
+      // sideways like a coin wobbling).  0.85 per frame ≈ 97% removed per second at 60fps.
+      this.body.angularVelocity.y *= 0.85;
     }
 
     // Update mesh position and rotation to match physics

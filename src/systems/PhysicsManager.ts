@@ -60,14 +60,15 @@ export class PhysicsManager {
       contactEquationRelaxation: 3,
     }));
 
-    // Per-tire-type contact materials with distinct restitution values.
-    // Material names match the `tire_${TireType}` pattern used in Tire.createPhysicsBody().
+    // Per-tire-type contact materials.
+    // Values must match TIRE_CONFIGS in src/types/index.ts — friction and
+    // restitution are the single source of truth for each tire type.
     const perTypeMaterials: Array<{ name: string; friction: number; restitution: number }> = [
-      { name: 'tire_standard',      friction: 0.8,  restitution: 0.4  },
+      { name: 'tire_standard',      friction: 0.8,  restitution: 0.3  },
       { name: 'tire_monster_truck', friction: 0.9,  restitution: 0.2  },
-      { name: 'tire_racing_slick',  friction: 0.95, restitution: 0.35 },
-      { name: 'tire_tractor',       friction: 1.0,  restitution: 0.15 },
-      { name: 'tire_spare',         friction: 0.6,  restitution: 0.8  },
+      { name: 'tire_racing_slick',  friction: 1.0,  restitution: 0.1  },
+      { name: 'tire_tractor',       friction: 1.2,  restitution: 0.15 },
+      { name: 'tire_spare',         friction: 0.6,  restitution: 0.6  },
     ];
 
     perTypeMaterials.forEach(({ name, friction, restitution }) => {
@@ -221,7 +222,9 @@ export class PhysicsManager {
     material?: CANNON.Material,
   ): CANNON.Body {
     // Use cylinder shape for tire
-    const shape = new CANNON.Cylinder(radius, radius, width, 16);
+    // 20 segments gives a much smoother cylinder than 16, reducing the "ticking"
+    // artefact on flat terrain caused by flat polygon faces contacting the surface.
+    const shape = new CANNON.Cylinder(radius, radius, width, 20);
 
     const body = new CANNON.Body({
       mass: mass,
@@ -336,8 +339,10 @@ export class PhysicsManager {
   public update(deltaTime: number): void {
     // Step physics simulation — apply timeScale for slow-motion support
     const scaledDelta = deltaTime * this.timeScale;
-    const timeStep = Math.min(scaledDelta, this.config.timeStep);
-    this.world.step(this.config.timeStep, timeStep, this.config.maxSubSteps);
+    // Pass scaledDelta (uncapped) as timeSinceLastCall so cannon-es can subdivide
+    // slow frames into multiple sub-steps.  Capping it was causing physics to run
+    // in slow motion at <60fps.  maxSubSteps caps the total work per frame.
+    this.world.step(this.config.timeStep, scaledDelta, this.config.maxSubSteps);
 
     // Sync visual meshes with physics bodies
     this.syncBodies();
