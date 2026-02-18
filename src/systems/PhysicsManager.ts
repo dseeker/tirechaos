@@ -86,6 +86,37 @@ export class PhysicsManager {
   }
 
   /**
+   * Add a heightfield terrain body to the physics world.
+   * @param heights 2D array [xi][zi] of Y values
+   * @param elementSize World-unit spacing between height samples
+   * @param offsetX World X position of the first column (xi=0)
+   * @param offsetZ World Z position of the first row   (zi=0)
+   */
+  public addTerrainBody(
+    heights: number[][],
+    elementSize: number,
+    offsetX: number,
+    offsetZ: number,
+    baseY: number = 0,
+  ): CANNON.Body {
+    const shape = new CANNON.Heightfield(heights, { elementSize });
+    const groundMat = new CANNON.Material('ground');
+
+    const body = new CANNON.Body({ mass: 0, material: groundMat });
+    body.addShape(shape);
+
+    // Heightfield local origin is at its first sample (xi=0, zi=0).
+    // Translate by the world offset + baseY so it aligns with the Babylon mesh.
+    body.position.set(offsetX, baseY, offsetZ);
+
+    // CANNON.Heightfield is oriented in the local XZ plane but Cannon's Y is up.
+    // A 90° rotation around the X axis is NOT needed — the shape already uses
+    // X for columns and Z for rows.  We only need the body to sit at the right Y.
+    this.world.addBody(body);
+    return body;
+  }
+
+  /**
    * Add a ground plane to the physics world
    */
   public addGroundPlane(mesh: BABYLON.Mesh): CANNON.Body {
@@ -188,17 +219,16 @@ export class PhysicsManager {
       angularDamping: 0.05,
     });
 
-    // Rotate cylinder to be oriented like a wheel (around Z axis)
-    const quaternion = new CANNON.Quaternion();
-    quaternion.setFromAxisAngle(new CANNON.Vec3(0, 0, 1), Math.PI / 2);
-    shape.transformAllPoints(new CANNON.Vec3(), quaternion);
-
+    // Do NOT bake the rotation into the shape vertices.
+    // Instead, set the body's initial quaternion to Rx(90°) so the Y-axis
+    // cylinder is rotated to have its axis along Z in world space.
+    // This matches the Babylon mesh which also uses rotationQuaternion Rx(90°).
     body.position.set(mesh.position.x, mesh.position.y, mesh.position.z);
     body.quaternion.set(
-      mesh.rotationQuaternion?.x || 0,
-      mesh.rotationQuaternion?.y || 0,
-      mesh.rotationQuaternion?.z || 0,
-      mesh.rotationQuaternion?.w || 1,
+      mesh.rotationQuaternion?.x ?? 0,
+      mesh.rotationQuaternion?.y ?? 0,
+      mesh.rotationQuaternion?.z ?? 0,
+      mesh.rotationQuaternion?.w ?? 1,
     );
 
     this.world.addBody(body);

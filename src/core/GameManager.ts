@@ -322,7 +322,8 @@ export class GameManager {
         if (this.launchControlUI && this.launchControlUI.isVisible()) {
           this.launchTire(this.launchControlUI.getPower(), this.launchControlUI.getAngle());
         } else {
-          this.launchTire(0.8, 45);
+          // Default: moderate speed, straight downhill (0° direction)
+          this.launchTire(0.6, 0);
         }
       },
     });
@@ -553,9 +554,18 @@ export class GameManager {
   }
 
   /**
-   * Launch a tire with given power and angle
+   * Release a tire from the hilltop.
+   *
+   * @param speed     Normalised initial speed (0–1).  Maps to 0–MAX_RELEASE_SPEED.
+   * @param direction Azimuth in degrees from straight-downhill (+X).
+   *                  Negative = left (−Z), positive = right (+Z).  Clamped to ±45°.
+   * @param tireType  Optional explicit tire type override.
    */
-  public launchTire(power: number, angle: number, tireType?: TireType): void {
+  public launchTire(speed: number, direction: number, tireType?: TireType): void {
+    // Maximum initial speed (m/s) the player can give the tire on release.
+    // Gravity and the hillside do the rest of the work.
+    const MAX_RELEASE_SPEED = 10;
+
     // Use selected tire type from launch control UI if not explicitly specified
     const selectedType = tireType ?? this.launchControlUI.getSelectedTireType();
 
@@ -589,17 +599,19 @@ export class GameManager {
 
     const tire = new Tire(selectedType, this.scene, this.physicsManager, this.particleManager, this.screenEffects);
 
-    // Set launch position from current level layout
+    // Set launch position on terrain surface + tire radius
     tire.setPosition(this._currentLaunchPosition.clone());
 
-    // Calculate launch velocity
-    const launchSpeed = power * 30;
-    const angleRad = (angle * Math.PI) / 180;
+    // Compute release velocity: direction is azimuth from +X (downhill).
+    // The tire rolls DOWNHILL (+X direction) with a small sideways deviation.
+    // No upward velocity – gravity and terrain slope take over from here.
+    const directionRad = (direction * Math.PI) / 180;
+    const releaseSpeed = speed * MAX_RELEASE_SPEED;
 
     const velocity = new BABYLON.Vector3(
-      Math.cos(angleRad) * launchSpeed,
-      Math.sin(angleRad) * launchSpeed,
-      0
+      Math.cos(directionRad) * releaseSpeed,  // downhill component
+      0,                                        // no vertical throw
+      Math.sin(directionRad) * releaseSpeed,   // side deviation
     );
 
     tire.launch(velocity);
@@ -722,9 +734,7 @@ export class GameManager {
     const roundNum = this.roundManager.getCurrentRoundNumber() || 1;
     this.loadLevelForRound(roundNum);
 
-    // Reset camera
-    this.camera.position = new BABYLON.Vector3(0, 10, 20);
-    this.camera.setTarget(BABYLON.Vector3.Zero());
+    // Camera is repositioned inside loadLevelForRound() once terrain is built
 
     this.updateUI();
   }
@@ -1117,7 +1127,7 @@ export class GameManager {
 
   /**
    * Build the scene for a given round number using LevelGenerator.
-   * Updates the HUD level name, launch position, and RoundManager parameters.
+   * Updates the HUD level name, launch position (terrain-aware), and camera.
    */
   private loadLevelForRound(roundNumber: number): void {
     const layout = getLevelLayout(roundNumber);
@@ -1136,8 +1146,17 @@ export class GameManager {
 
     this.levelGenerator.buildLevel(layout);
 
-    // Store launch position so launchTire() picks it up
-    this._currentLaunchPosition = layout.launchPosition;
+    // Compute the tire's release position on the terrain surface.
+    // layout.launchPosition.x/z give the hilltop XZ; Y comes from terrain.
+    const lx = layout.launchPosition.x;
+    const lz = layout.launchPosition.z;
+    const surfaceY = this.levelGenerator.getTerrainSurfaceY(lx, lz);
+    // Lift by one tire radius so the tire sits on the surface, not inside it
+    const tireRadius = 0.4;
+    this._currentLaunchPosition = new BABYLON.Vector3(lx, surfaceY + tireRadius + 0.1, lz);
+
+    // Position camera behind the hilltop, looking downhill (+X direction)
+    this.positionCameraForHill(lx, lz, surfaceY);
 
     // Announce the level name in the HUD
     this.uiManager.showMessage(
@@ -1147,8 +1166,28 @@ export class GameManager {
 
     console.log(
       `GameManager: loaded level ${layout.roundNumber} "${layout.name}" – ` +
-      `${layout.objects.length} objects, ${layout.props.length} props`,
+      `${layout.objects.length} objects, ${layout.props.length} props – ` +
+      `launch at (${lx}, ${(surfaceY + tireRadius).toFixed(1)}, ${lz})`,
     );
+  }
+
+  /**
+   * Position the main camera behind the hilltop, looking downhill.
+   * Called after terrain is built so the exact surface height is known.
+   */
+  private positionCameraForHill(hillX: number, hillZ: number, surfaceY: number): void {
+    // Place camera behind (west of) the hilltop, elevated above it
+    const camX = hillX - 18;
+    const camY = surfaceY + 12;
+    const camZ = hillZ;
+
+    // Look toward the downhill play area
+    const targetX = hillX + 20;
+    const targetY = surfaceY - 3;
+    const targetZ = hillZ;
+
+    this.camera.position  = new BABYLON.Vector3(camX, camY, camZ);
+    this.camera.setTarget(new BABYLON.Vector3(targetX, targetY, targetZ));
   }
 
   /**

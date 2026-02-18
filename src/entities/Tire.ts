@@ -322,8 +322,13 @@ export class Tire {
       console.warn('Vertex deformation system unavailable, using scale-only deformation');
     }
 
-    // Rotate to be wheel-like (around Z axis)
-    mesh.rotation.z = Math.PI / 2;
+    // Orient tire so its axle points along Z (disk visible from +Z camera).
+    // Rotating a Y-axis cylinder 90° around X makes the axis point along +Z,
+    // so the tire stands upright and rolls in the X direction (downhill).
+    mesh.rotationQuaternion = BABYLON.Quaternion.RotationAxis(
+      new BABYLON.Vector3(1, 0, 0),
+      Math.PI / 2,
+    );
 
     // Create PBR material for realistic tire look
     const material = new BABYLON.PBRMetallicRoughnessMaterial(
@@ -420,8 +425,15 @@ export class Tire {
   public launch(velocity: BABYLON.Vector3): void {
     this.body.velocity.set(velocity.x, velocity.y, velocity.z);
 
-    // Add some initial spin
-    this.body.angularVelocity.set(0, 0, -velocity.x / this.config.properties.radius);
+    // Rolling-without-slip angular velocity for a tire with axle along Z.
+    // For motion in direction (vx, 0, vz): omega = (vz/r, 0, -vx/r)
+    // This satisfies v_contact = v_center + omega × (-r_y) = 0 at the ground.
+    const radius = this.config.properties.radius;
+    this.body.angularVelocity.set(
+      velocity.z / radius,
+      0,
+      -velocity.x / radius,
+    );
 
     this.isLaunched = true;
     this.launchTime = performance.now();
