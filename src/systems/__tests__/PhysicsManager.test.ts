@@ -32,7 +32,7 @@ describe('PhysicsManager', () => {
 
     it('should have solver configured', () => {
       // @ts-ignore - iterations property exists at runtime
-      expect(physicsManager.world.solver.iterations).toBe(10);
+      expect(physicsManager.world.solver.iterations).toBe(20);
     });
 
     it('should allow sleeping bodies', () => {
