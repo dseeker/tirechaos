@@ -100,6 +100,11 @@ export class Color3 {
 export class Quaternion {
   constructor(public x: number = 0, public y: number = 0, public z: number = 0, public w: number = 1) {}
 
+  static RotationAxis(axis: Vector3, angle: number): Quaternion {
+    const s = Math.sin(angle / 2);
+    return new Quaternion(axis.x * s, axis.y * s, axis.z * s, Math.cos(angle / 2));
+  }
+
   set(x: number, y: number, z: number, w: number) {
     this.x = x;
     this.y = y;
