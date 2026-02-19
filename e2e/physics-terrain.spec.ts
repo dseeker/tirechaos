@@ -25,8 +25,12 @@ async function startGame(page: any) {
   await waitForLoaded(page);
   await page.click('#btn-start');
   await page.waitForSelector('#game-hud', { state: 'visible', timeout: 8000 });
-  // Let the terrain build and physics settle before interacting
-  await page.waitForTimeout(1500);
+  // Poll until the physics world has at least one body (terrain heightfield).
+  // Avoids a fixed 1500 ms sleep — resolves in ~200–500 ms on fast hardware.
+  await page.waitForFunction(
+    () => ((window as any).__gameManager?.physicsManager?.world?.bodies?.length ?? 0) >= 1,
+    { timeout: 10000 },
+  );
 }
 
 /** Read a physics value from the live game via the exposed __gameManager. */
@@ -58,29 +62,39 @@ async function physicsState(page: any) {
 }
 
 // ── Suite: Release Control UI ─────────────────────────────────────────────────
+// All tests here are read-only UI checks — share a single page load via
+// beforeAll to avoid paying the ~10 s Babylon.js boot cost 6 times.
 
 test.describe('Release Control UI', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    await startGame(page);
+  test.describe.configure({ mode: 'serial' });
+  let sharedPage: any;
+
+  test.beforeAll(async ({ browser }) => {
+    sharedPage = await browser.newPage();
+    await sharedPage.goto('/');
+    await startGame(sharedPage);
   });
 
-  test('panel is visible with RELEASE CONTROL title', async ({ page }) => {
-    const panel = page.locator('#launch-control-ui');
+  test.afterAll(async () => {
+    await sharedPage?.close();
+  });
+
+  test('panel is visible with RELEASE CONTROL title', async () => {
+    const panel = sharedPage.locator('#launch-control-ui');
     await expect(panel).toBeVisible();
     await expect(panel).toContainText('RELEASE CONTROL');
   });
 
-  test('speed slider exists (not power/throw)', async ({ page }) => {
-    const panel = page.locator('#launch-control-ui');
+  test('speed slider exists (not power/throw)', async () => {
+    const panel = sharedPage.locator('#launch-control-ui');
     // Label should say SPEED, not POWER
     await expect(panel).toContainText('SPEED');
-    const slider = page.locator('#lc-power-slider');
+    const slider = sharedPage.locator('#lc-power-slider');
     await expect(slider).toBeVisible();
   });
 
-  test('direction slider has range -45 to +45', async ({ page }) => {
-    const slider = page.locator('#lc-angle-slider');
+  test('direction slider has range -45 to +45', async () => {
+    const slider = sharedPage.locator('#lc-angle-slider');
     await expect(slider).toBeVisible();
     const min = await slider.getAttribute('min');
     const max = await slider.getAttribute('max');
@@ -88,20 +102,20 @@ test.describe('Release Control UI', () => {
     expect(Number(max)).toBe(45);
   });
 
-  test('direction slider defaults to 0 (straight downhill)', async ({ page }) => {
-    const slider = page.locator('#lc-angle-slider');
+  test('direction slider defaults to 0 (straight downhill)', async () => {
+    const slider = sharedPage.locator('#lc-angle-slider');
     const value = await slider.inputValue();
     expect(Number(value)).toBe(0);
   });
 
-  test('release button is labeled RELEASE', async ({ page }) => {
-    const btn = page.locator('#lc-launch-btn');
+  test('release button is labeled RELEASE', async () => {
+    const btn = sharedPage.locator('#lc-launch-btn');
     await expect(btn).toBeVisible();
     await expect(btn).toContainText('RELEASE');
   });
 
-  test('direction label shows DIRECTION', async ({ page }) => {
-    await expect(page.locator('#launch-control-ui')).toContainText('DIRECTION');
+  test('direction label shows DIRECTION', async () => {
+    await expect(sharedPage.locator('#launch-control-ui')).toContainText('DIRECTION');
   });
 });
 
