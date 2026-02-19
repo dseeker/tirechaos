@@ -36,6 +36,9 @@ async function main() {
       gameManager.gameState.objectsDestroyed++;
     });
 
+    // Expose singleton for e2e tests — read-only reference, never written to.
+    (window as any).__gameManager = gameManager;
+
     console.log('🎉 TIRE CHAOS is ready! Click and drag to aim, release to launch!');
   } catch (error) {
     console.error('❌ Failed to initialize game:', error);

@@ -18,10 +18,10 @@
   },
   "dependencies": {
     "@babylonjs/core": "^6.42.0",
-    "@babylonjs/materials": "^6.42.0",
-    "@babylonjs/loaders": "^6.42.0",
-    "@babylonjs/post-processes": "^6.42.0",
     "@babylonjs/inspector": "^6.42.0",
+    "@babylonjs/loaders": "^6.42.0",
+    "@babylonjs/materials": "^6.42.0",
+    "@babylonjs/post-processes": "^6.42.0",
     "cannon-es": "^0.20.0"
   },
   "devDependencies": {

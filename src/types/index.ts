@@ -250,8 +250,8 @@ export const TIRE_CONFIGS: Record<TireType, TireConfig> = {
 export const DEFAULT_PHYSICS_CONFIG: PhysicsConfig = {
   gravity: -9.82,
   timeStep: 1 / 60,
-  maxSubSteps: 3,
-  solverIterations: 10,
+  maxSubSteps: 8,   // handles frames slower than 60fps without slow-motion physics
+  solverIterations: 20, // 20+ needed for stable cylinder-on-heightfield contact
 };
 
 export const DEFAULT_POSTPROCESSING_CONFIG: PostProcessingConfig = {

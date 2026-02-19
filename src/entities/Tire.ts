@@ -322,8 +322,13 @@ export class Tire {
       console.warn('Vertex deformation system unavailable, using scale-only deformation');
     }
 
-    // Rotate to be wheel-like (around Z axis)
-    mesh.rotation.z = Math.PI / 2;
+    // Orient tire so its axle points along Z (disk visible from +Z camera).
+    // Rotating a Y-axis cylinder 90° around X makes the axis point along +Z,
+    // so the tire stands upright and rolls in the X direction (downhill).
+    mesh.rotationQuaternion = BABYLON.Quaternion.RotationAxis(
+      new BABYLON.Vector3(1, 0, 0),
+      Math.PI / 2,
+    );
 
     // Create PBR material for realistic tire look
     const material = new BABYLON.PBRMetallicRoughnessMaterial(
@@ -391,10 +396,20 @@ export class Tire {
    */
   private createPhysicsBody(): CANNON.Body {
     const { radius, width, mass } = this.config.properties;
-    // Use a tire-type-specific material name so per-type contact materials apply
-    const tireMaterial = new CANNON.Material(`tire_${this.config.type}`);
+    // Use the shared material instance from PhysicsManager so the pre-registered
+    // contact material pairs (tire_X ↔ ground) are actually matched by cannon-es.
+    const tireMaterial = this.physicsManager.getTireMaterial(`tire_${this.config.type}`);
 
-    return this.physicsManager.addTireBody(this.mesh, radius, width, mass, tireMaterial);
+    const body = this.physicsManager.addTireBody(this.mesh, radius, width, mass, tireMaterial);
+
+    // Apply per-type damping from TIRE_CONFIGS (addTireBody uses generic defaults).
+    body.linearDamping  = this.config.properties.linearDamping;
+    body.angularDamping = this.config.properties.angularDamping;
+
+    // Never sleep: a tire rolling slowly down a gentle slope should not freeze.
+    body.allowSleep = false;
+
+    return body;
   }
 
   /**
@@ -420,8 +435,15 @@ export class Tire {
   public launch(velocity: BABYLON.Vector3): void {
     this.body.velocity.set(velocity.x, velocity.y, velocity.z);
 
-    // Add some initial spin
-    this.body.angularVelocity.set(0, 0, -velocity.x / this.config.properties.radius);
+    // Rolling-without-slip angular velocity for a tire with axle along Z.
+    // For motion in direction (vx, 0, vz): omega = (vz/r, 0, -vx/r)
+    // This satisfies v_contact = v_center + omega × (-r_y) = 0 at the ground.
+    const radius = this.config.properties.radius;
+    this.body.angularVelocity.set(
+      velocity.z / radius,
+      0,
+      -velocity.x / radius,
+    );
 
     this.isLaunched = true;
     this.launchTime = performance.now();
@@ -435,34 +457,30 @@ export class Tire {
   private updateTrail(): void {
     if (!this.isLaunched) return;
 
-    // Add current position to trail
     this.trailPoints.push(this.mesh.position.clone());
-
-    // Keep only last 50 points
     if (this.trailPoints.length > 50) {
       this.trailPoints.shift();
     }
 
-    // Update or create trail mesh
-    if (this.trailPoints.length >= 2) {
-      // Dispose old trail
-      if (this.trail) {
-        this.trail.dispose();
-      }
+    if (this.trailPoints.length < 2) return;
 
-      // Create new trail line
+    if (!this.trail) {
+      // First creation — mark as updatable so we can mutate it in-place later.
       this.trail = BABYLON.MeshBuilder.CreateLines(
-        `trail_${Date.now()}`,
-        {
-          points: this.trailPoints,
-          updatable: true,
-        },
+        'trail',
+        { points: this.trailPoints, updatable: true },
         this.scene,
       );
-
-      // Set trail appearance
       this.trail.color = new BABYLON.Color3(1, 1, 1);
       this.trail.alpha = 0.5;
+    } else {
+      // Subsequent frames — update the existing GPU buffer without reallocating.
+      // CreateLines with `instance` overwrites the vertex data in-place.
+      BABYLON.MeshBuilder.CreateLines(
+        'trail',
+        { points: this.trailPoints, instance: this.trail },
+        this.scene,
+      );
     }
   }
 
@@ -504,6 +522,26 @@ export class Tire {
     if (this.mesh.position.y < -50) {
       console.log('🌊 Tire fell off the map!');
       this.destroy();
+    }
+
+    // --- Rolling-without-slip maintenance ---
+    // At launch the angular velocity satisfies omega = v/r exactly, but after the
+    // first bounce or terrain irregularity cannon-es friction alone cannot maintain
+    // the constraint.  Apply a soft per-frame correction (blend factor 0.2) that
+    // steers omega toward the no-slip target without fighting the solver abruptly.
+    // The tire axle is along world Z (rotationQuaternion = Rx(PI/2)), so:
+    //   omega_x = vz / r   (rolling in Z direction)
+    //   omega_z = -vx / r  (rolling in X direction)
+    if (this.isLaunched) {
+      const radius = this.config.properties.radius;
+      const vx = this.body.velocity.x;
+      const vz = this.body.velocity.z;
+      const blend = 0.2; // soft correction — doesn't fight the solver
+      this.body.angularVelocity.x += (vz / radius - this.body.angularVelocity.x) * blend;
+      this.body.angularVelocity.z += (-vx / radius - this.body.angularVelocity.z) * blend;
+      // Lateral yaw damping: suppress spinning around the vertical axis (tire drifting
+      // sideways like a coin wobbling).  0.85 per frame ≈ 97% removed per second at 60fps.
+      this.body.angularVelocity.y *= 0.85;
     }
 
     // Update mesh position and rotation to match physics

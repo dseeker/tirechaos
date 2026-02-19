@@ -143,26 +143,34 @@ export class InputHandler {
         }
         break;
       case ' ':
-        // Quick launch with default parameters
+        // Quick launch: moderate speed, straight downhill
         event.preventDefault();
-        this.gameManager.launchTire(0.8, 45);
+        this.gameManager.launchTire(0.5, 0);
         break;
     }
   }
 
   /**
-   * Update aiming parameters based on drag
+   * Update aiming parameters based on drag.
+   *
+   * The camera now looks downhill (+X world direction), so:
+   *   - Horizontal screen drag (delta.x) → left/right deviation direction (±45°)
+   *   - Total drag distance              → initial roll speed (0–1)
    */
   private updateAimingParameters(): void {
     const delta = this.inputState.currentPosition.subtract(this.inputState.startPosition);
 
-    // Calculate power (0-1) based on drag distance
+    // Speed: total drag distance, normalised to [0, 1]
     const dragDistance = delta.length();
     this.inputState.power = Math.min(dragDistance / this.maxDragDistance, this.maxPower);
 
-    // Calculate angle (0-90 degrees) based on drag direction
-    const angle = Math.atan2(-delta.y, delta.x) * (180 / Math.PI);
-    this.inputState.angle = Math.max(0, Math.min(90, angle));
+    // Direction: horizontal drag maps to ±45° from straight downhill
+    // Positive delta.x (drag right) → positive direction (+Z, right of hill)
+    const maxHorizontalDrag = this.maxDragDistance * 0.7;
+    const direction = Math.max(-45, Math.min(45,
+      (delta.x / maxHorizontalDrag) * 45
+    ));
+    this.inputState.angle = direction;
   }
 
   /**

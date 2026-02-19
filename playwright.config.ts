@@ -5,7 +5,7 @@ export default defineConfig({
   testMatch: ['e2e/**/*.spec.ts', 'tests/e2e/**/*.spec.ts'],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
   use: {
@@ -17,7 +17,18 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        // Babylon.js needs WebGL — enable it in headless Chromium.
+        launchOptions: {
+          args: [
+            '--enable-webgl',
+            '--ignore-gpu-blocklist',
+            '--disable-gpu-sandbox',
+            '--no-sandbox',
+          ],
+        },
+      },
     },
     {
       name: 'firefox',

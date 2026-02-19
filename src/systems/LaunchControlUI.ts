@@ -1,11 +1,20 @@
 import { TireType } from '../types';
 
 /**
- * LaunchControlUI - Interactive UI component for controlling tire launch parameters.
- * Provides sliders for power and angle, a LAUNCH button, and keyboard shortcuts.
+ * LaunchControlUI – Release control panel for rolling tires downhill.
+ *
+ * Controls:
+ *   SPEED     – how fast the tire starts rolling (0 = just gravity, 100% = full push)
+ *   DIRECTION – steering angle from straight downhill; negative = left, positive = right
+ *   RELEASE   – send the tire downhill
+ *
+ * Keyboard shortcuts while visible:
+ *   Up / Down     → adjust speed
+ *   Left / Right  → adjust direction
+ *   Space         → release
+ *   T             → cycle tire type (handled by KeyboardManager, shown for reference)
  */
 
-// Display labels for each TireType
 const TIRE_LABELS: Record<TireType, string> = {
   [TireType.STANDARD]:     'STANDARD',
   [TireType.MONSTER_TRUCK]:'MONSTER',
@@ -14,7 +23,6 @@ const TIRE_LABELS: Record<TireType, string> = {
   [TireType.SPARE]:        'SPARE',
 };
 
-// Stat arrays: [speed, mass, bounce] each 0–5
 const TIRE_STATS: Record<TireType, { speed: number; mass: number; bounce: number }> = {
   [TireType.STANDARD]:     { speed: 3, mass: 2, bounce: 2 },
   [TireType.MONSTER_TRUCK]:{ speed: 2, mass: 5, bounce: 1 },
@@ -34,38 +42,34 @@ const TIRE_ORDER: TireType[] = [
 export class LaunchControlUI {
   private container: HTMLElement | null = null;
 
-  // Current values
-  private power: number = 0.5;
-  private angle: number = 45;
+  // speed: 0–1  (normalised initial push speed)
+  private power: number = 0.3;
+  // direction: −45 to +45 degrees from straight downhill
+  private angle: number = 0;
+
   private selectedTireType: TireType = TireType.STANDARD;
 
-  // Step sizes for keyboard adjustment
   private readonly POWER_STEP = 0.05;
   private readonly ANGLE_STEP = 5;
 
-  // Clamp limits
   private readonly POWER_MIN = 0;
   private readonly POWER_MAX = 1;
-  private readonly ANGLE_MIN = 0;
-  private readonly ANGLE_MAX = 90;
+  private readonly ANGLE_MIN = -45;
+  private readonly ANGLE_MAX =  45;
 
-  // Keyboard event handler references (for cleanup)
   private keydownHandler: (e: KeyboardEvent) => void;
+  private onLaunch: (speed: number, direction: number) => void;
 
-  // Launch callback
-  private onLaunch: (power: number, angle: number) => void;
-
-  constructor(onLaunch: (power: number, angle: number) => void) {
+  constructor(onLaunch: (speed: number, direction: number) => void) {
     this.onLaunch = onLaunch;
     this.keydownHandler = this.handleKeydown.bind(this);
     this.createElement();
     this.setupKeyboardShortcuts();
-    console.log('Launch Control UI initialized');
+    console.log('Release Control UI initialized');
   }
 
-  /**
-   * Build the DOM structure for the launch control panel.
-   */
+  // ─── DOM construction ──────────────────────────────────────────────────────
+
   private createElement(): void {
     const existing = document.getElementById('launch-control-ui');
     if (existing) {
@@ -78,53 +82,53 @@ export class LaunchControlUI {
     el.className = 'launch-control hidden';
     el.innerHTML = `
       <div class="launch-control__header">
-        <span class="launch-control__title">LAUNCH CONTROL</span>
+        <span class="launch-control__title">RELEASE CONTROL</span>
         <span class="launch-control__hint">ARROW KEYS &bull; SPACE</span>
       </div>
 
       <div class="launch-control__body">
 
-        <!-- Power slider -->
+        <!-- Speed slider -->
         <div class="launch-control__row">
           <label class="launch-control__label" for="lc-power-slider">
-            <span class="launch-control__label-text">POWER</span>
-            <span id="lc-power-value" class="launch-control__value launch-control__value--power">50%</span>
+            <span class="launch-control__label-text">SPEED</span>
+            <span id="lc-power-value" class="launch-control__value launch-control__value--power">30%</span>
           </label>
           <div class="launch-control__slider-track">
-            <div id="lc-power-fill" class="launch-control__slider-fill launch-control__slider-fill--power" style="width:50%"></div>
+            <div id="lc-power-fill" class="launch-control__slider-fill launch-control__slider-fill--power" style="width:30%"></div>
             <input
               id="lc-power-slider"
               class="launch-control__slider"
               type="range"
               min="0" max="100" step="1"
-              value="50"
-              aria-label="Launch power"
+              value="30"
+              aria-label="Release speed"
             />
           </div>
           <div class="launch-control__ticks">
-            <span>0</span><span>25</span><span>50</span><span>75</span><span>MAX</span>
+            <span>ROLL</span><span>25</span><span>50</span><span>75</span><span>PUSH</span>
           </div>
         </div>
 
-        <!-- Angle slider -->
+        <!-- Direction slider -->
         <div class="launch-control__row">
           <label class="launch-control__label" for="lc-angle-slider">
-            <span class="launch-control__label-text">ANGLE</span>
-            <span id="lc-angle-value" class="launch-control__value launch-control__value--angle">45&deg;</span>
+            <span class="launch-control__label-text">DIRECTION</span>
+            <span id="lc-angle-value" class="launch-control__value launch-control__value--angle">0&deg;</span>
           </label>
           <div class="launch-control__slider-track">
-            <div id="lc-angle-fill" class="launch-control__slider-fill launch-control__slider-fill--angle" style="width:50%"></div>
+            <div id="lc-angle-fill" class="launch-control__slider-fill launch-control__slider-fill--angle" style="left:50%;width:0%"></div>
             <input
               id="lc-angle-slider"
               class="launch-control__slider"
               type="range"
-              min="0" max="90" step="1"
-              value="45"
-              aria-label="Launch angle"
+              min="-45" max="45" step="1"
+              value="0"
+              aria-label="Release direction"
             />
           </div>
           <div class="launch-control__ticks">
-            <span>0&deg;</span><span>22&deg;</span><span>45&deg;</span><span>67&deg;</span><span>90&deg;</span>
+            <span>LEFT</span><span>-22&deg;</span><span>STRAIGHT</span><span>+22&deg;</span><span>RIGHT</span>
           </div>
         </div>
 
@@ -135,12 +139,14 @@ export class LaunchControlUI {
             <span class="launch-control__hint">T KEY</span>
           </div>
           <div class="tire-selector__buttons" id="lc-tire-buttons">
-            ${TIRE_ORDER.map(t => `<button class="tire-btn${t === TireType.STANDARD ? ' active' : ''}" data-tire="${t}" type="button">${TIRE_LABELS[t]}</button>`).join('')}
+            ${TIRE_ORDER.map(t =>
+              `<button class="tire-btn${t === TireType.STANDARD ? ' active' : ''}" data-tire="${t}" type="button">${TIRE_LABELS[t]}</button>`
+            ).join('')}
           </div>
           <div id="lc-tire-stats" class="tire-stats"></div>
         </div>
 
-        <!-- Trajectory preview arc -->
+        <!-- Direction preview (top-down bird's-eye) -->
         <div class="launch-control__preview" aria-hidden="true">
           <svg
             id="lc-arc-svg"
@@ -149,34 +155,32 @@ export class LaunchControlUI {
             xmlns="http://www.w3.org/2000/svg"
             preserveAspectRatio="xMidYMid meet"
           >
-            <!-- Background grid lines -->
-            <line x1="0" y1="100" x2="200" y2="100" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
-            <line x1="0" y1="75"  x2="200" y2="75"  stroke="rgba(255,255,255,0.05)" stroke-width="0.5"/>
-            <line x1="0" y1="50"  x2="200" y2="50"  stroke="rgba(255,255,255,0.05)" stroke-width="0.5"/>
-            <line x1="0" y1="25"  x2="200" y2="25"  stroke="rgba(255,255,255,0.05)" stroke-width="0.5"/>
+            <!-- Hill representation (left side) -->
+            <polygon points="10,90 40,10 70,90" fill="rgba(80,140,60,0.5)" stroke="rgba(80,200,60,0.5)" stroke-width="1"/>
+            <text x="40" y="55" text-anchor="middle" fill="rgba(255,255,255,0.6)" font-size="8">HILL</text>
 
-            <!-- Trajectory arc (dynamically updated) -->
-            <path
-              id="lc-arc-path"
-              fill="none"
+            <!-- Terrain (right side) -->
+            <rect x="70" y="80" width="120" height="10" fill="rgba(60,100,40,0.4)" rx="2"/>
+            <text x="130" y="76" text-anchor="middle" fill="rgba(255,255,255,0.4)" font-size="7">TARGETS</text>
+
+            <!-- Direction arrow (dynamically updated) -->
+            <line
+              id="lc-dir-line"
+              x1="40" y1="50"
+              x2="130" y2="50"
               stroke="url(#lc-arc-gradient)"
               stroke-width="2.5"
               stroke-linecap="round"
-              d="M10,90 Q105,10 190,90"
+              marker-end="url(#lc-arrowhead)"
             />
 
-            <!-- Launch origin dot -->
-            <circle cx="10" cy="90" r="4" fill="var(--lc-power-color, #ff6b35)"/>
-
-            <!-- Landing dot (dynamically updated) -->
-            <circle id="lc-arc-landing" cx="190" cy="90" r="4" fill="var(--lc-angle-color, #00d9ff)"/>
-
-            <!-- Arrow at peak (dynamically updated) -->
-            <polygon
-              id="lc-arc-arrow"
-              points="100,20 96,28 104,28"
-              fill="var(--lc-angle-color, #00d9ff)"
-              opacity="0.8"
+            <!-- Side-deviation indicator -->
+            <line
+              id="lc-center-line"
+              x1="40" y1="50" x2="190" y2="50"
+              stroke="rgba(255,255,255,0.12)"
+              stroke-width="1"
+              stroke-dasharray="4 3"
             />
 
             <defs>
@@ -184,29 +188,31 @@ export class LaunchControlUI {
                 <stop offset="0%"   stop-color="#ff6b35"/>
                 <stop offset="100%" stop-color="#00d9ff"/>
               </linearGradient>
+              <marker id="lc-arrowhead" markerWidth="6" markerHeight="6"
+                      refX="3" refY="3" orient="auto">
+                <path d="M0,0 L0,6 L6,3 z" fill="#00d9ff"/>
+              </marker>
             </defs>
           </svg>
         </div>
 
       </div>
 
-      <!-- Launch button -->
+      <!-- Release button -->
       <button id="lc-launch-btn" class="launch-control__launch-btn" type="button">
         <span class="launch-control__btn-icon">&#9654;</span>
-        LAUNCH
+        RELEASE
       </button>
     `;
 
     document.body.appendChild(el);
     this.container = el;
 
-    // Bind slider interactions
     this.bindSliders();
   }
 
-  /**
-   * Attach change / input listeners to the sliders.
-   */
+  // ─── Event binding ─────────────────────────────────────────────────────────
+
   private bindSliders(): void {
     const powerSlider = document.getElementById('lc-power-slider') as HTMLInputElement | null;
     const angleSlider = document.getElementById('lc-angle-slider') as HTMLInputElement | null;
@@ -229,9 +235,6 @@ export class LaunchControlUI {
     this.bindTireSelector();
   }
 
-  /**
-   * Attach click listeners to tire type buttons and render initial stats.
-   */
   private bindTireSelector(): void {
     const container = document.getElementById('lc-tire-buttons');
     if (!container) return;
@@ -247,9 +250,6 @@ export class LaunchControlUI {
     this.refreshTireSelector();
   }
 
-  /**
-   * Update active button highlight and stat line for the selected tire type.
-   */
   private refreshTireSelector(): void {
     const container = document.getElementById('lc-tire-buttons');
     if (container) {
@@ -261,23 +261,17 @@ export class LaunchControlUI {
     const statsEl = document.getElementById('lc-tire-stats');
     if (statsEl) {
       const s = TIRE_STATS[this.selectedTireType];
-      const dot = (filled: number) =>
-        '●'.repeat(filled) + '○'.repeat(5 - filled);
+      const dot = (filled: number) => '●'.repeat(filled) + '○'.repeat(5 - filled);
       statsEl.textContent = `Speed: ${dot(s.speed)}  Mass: ${dot(s.mass)}  Bounce: ${dot(s.bounce)}`;
     }
   }
 
-  /**
-   * Register arrow-key shortcuts for fine-tuning and SPACE for launching.
-   * Only acts when the UI is visible to avoid conflicts with other shortcuts.
-   */
+  // ─── Keyboard ──────────────────────────────────────────────────────────────
+
   private setupKeyboardShortcuts(): void {
     window.addEventListener('keydown', this.keydownHandler);
   }
 
-  /**
-   * Handle keyboard events for launch control.
-   */
   private handleKeydown(e: KeyboardEvent): void {
     if (!this.container || this.container.classList.contains('hidden')) return;
 
@@ -299,41 +293,27 @@ export class LaunchControlUI {
         this.adjustAngle(-this.ANGLE_STEP);
         break;
       case ' ':
-        // SPACE is also registered in KeyboardManager for quick launch.
-        // The LaunchControlUI launch uses the current slider values, so we
-        // only intercept here; KeyboardManager's callback still fires with
-        // its own hardcoded values unless the consumer wires them together.
         e.preventDefault();
         this.triggerLaunch();
         break;
     }
   }
 
-  /**
-   * Adjust power by delta, clamped to [POWER_MIN, POWER_MAX].
-   */
   private adjustPower(delta: number): void {
     this.power = Math.min(this.POWER_MAX, Math.max(this.POWER_MIN, this.power + delta));
     this.refreshDisplay();
     this.flashControl('power');
   }
 
-  /**
-   * Adjust angle by delta, clamped to [ANGLE_MIN, ANGLE_MAX].
-   */
   private adjustAngle(delta: number): void {
     this.angle = Math.min(this.ANGLE_MAX, Math.max(this.ANGLE_MIN, this.angle + delta));
     this.refreshDisplay();
     this.flashControl('angle');
   }
 
-  /**
-   * Trigger the launch callback and play a brief button-press animation.
-   */
   private triggerLaunch(): void {
     this.onLaunch(this.power, this.angle);
 
-    // Visual feedback: briefly scale the button
     const btn = document.getElementById('lc-launch-btn');
     if (btn) {
       btn.classList.add('launch-control__launch-btn--fired');
@@ -341,9 +321,6 @@ export class LaunchControlUI {
     }
   }
 
-  /**
-   * Briefly highlight the changed control to give tactile feedback.
-   */
   private flashControl(type: 'power' | 'angle'): void {
     const id = type === 'power' ? 'lc-power-value' : 'lc-angle-value';
     const el = document.getElementById(id);
@@ -352,11 +329,10 @@ export class LaunchControlUI {
     setTimeout(() => el.classList.remove('launch-control__value--flash'), 200);
   }
 
-  /**
-   * Update all visual elements to reflect the current power/angle values.
-   */
+  // ─── Display refresh ───────────────────────────────────────────────────────
+
   private refreshDisplay(): void {
-    // ---- Power ----
+    // ---- Speed ----
     const powerPct = Math.round(this.power * 100);
 
     const powerSlider = document.getElementById('lc-power-slider') as HTMLInputElement | null;
@@ -368,7 +344,6 @@ export class LaunchControlUI {
     const powerValue = document.getElementById('lc-power-value');
     if (powerValue) powerValue.textContent = `${powerPct}%`;
 
-    // Colour the fill based on power intensity
     if (powerFill) {
       if (this.power < 0.33) {
         powerFill.style.background = 'linear-gradient(90deg, #00ff88, #00d9ff)';
@@ -379,164 +354,72 @@ export class LaunchControlUI {
       }
     }
 
-    // ---- Angle ----
-    const anglePct = (this.angle / 90) * 100;
-
+    // ---- Direction ----
     const angleSlider = document.getElementById('lc-angle-slider') as HTMLInputElement | null;
     if (angleSlider) angleSlider.value = this.angle.toString();
 
+    // For the direction fill, show deviation from centre (50%)
     const angleFill = document.getElementById('lc-angle-fill');
-    if (angleFill) angleFill.style.width = `${anglePct}%`;
+    if (angleFill) {
+      const pct = (this.angle / 90) * 100; // ±50% of slider width
+      if (pct >= 0) {
+        angleFill.style.left  = '50%';
+        angleFill.style.width = `${pct}%`;
+      } else {
+        angleFill.style.left  = `${50 + pct}%`;
+        angleFill.style.width = `${-pct}%`;
+      }
+    }
 
     const angleValue = document.getElementById('lc-angle-value');
-    if (angleValue) angleValue.textContent = `${Math.round(this.angle)}\u00b0`;
+    if (angleValue) {
+      const sign = this.angle > 0 ? '+' : '';
+      angleValue.textContent = `${sign}${Math.round(this.angle)}\u00b0`;
+    }
 
-    // ---- SVG arc preview ----
-    this.updateArc();
+    // ---- Direction preview arrow ----
+    this.updateDirectionPreview();
   }
 
   /**
-   * Recalculate and repaint the parabolic trajectory arc in the SVG preview.
-   * Uses a simplified projectile model in SVG coordinate space.
+   * Update the bird's-eye direction arrow in the SVG preview.
+   * The arrow rotates around the hilltop origin to show where the tire will head.
    */
-  private updateArc(): void {
-    const svg = document.getElementById('lc-arc-svg') as SVGSVGElement | null;
-    const arcPath   = document.getElementById('lc-arc-path')    as SVGPathElement | null;
-    const arcLanding = document.getElementById('lc-arc-landing') as SVGCircleElement | null;
-    const arcArrow  = document.getElementById('lc-arc-arrow')   as SVGPolygonElement | null;
+  private updateDirectionPreview(): void {
+    const dirLine = document.getElementById('lc-dir-line');
+    if (!dirLine) return;
 
-    if (!svg || !arcPath) return;
+    // SVG origin of the arrow (hilltop)
+    const ox = 40;
+    const oy = 50;
+    const arrowLen = 90; // pixels in SVG viewBox
 
-    // SVG canvas dimensions (see viewBox)
-    const W = 200;
-    const H = 100;
-    const groundY = 90;   // Y position of the "ground" line
-    const originX = 10;
-    const originY = groundY;
+    // direction angle: 0 = straight right (+X), positive = downward in SVG (+Z = right in game)
+    // In SVG, y increases downward; we want positive direction to go toward bottom (right side of terrain)
+    const rad = (this.angle * Math.PI) / 180;
+    const tx = ox + Math.cos(rad) * arrowLen;
+    const ty = oy + Math.sin(rad) * arrowLen;
 
-    const angleRad = (this.angle * Math.PI) / 180;
-    const speed = 0.5 + this.power * 1.5; // Normalised speed in SVG units
-
-    const vx = Math.cos(angleRad) * speed;
-    const vy = -Math.sin(angleRad) * speed; // Negative = upward in SVG coords
-    const gravity = 0.018; // Normalised gravity
-
-    // Sample trajectory points
-    const points: Array<[number, number]> = [];
-    let t = 0;
-    let px = originX;
-    let py = originY;
-    let landingX = originX;
-
-    const maxT = 300; // Safety cap
-    while (t < maxT) {
-      px = originX + vx * t;
-      py = originY + vy * t + 0.5 * gravity * t * t;
-
-      if (py > groundY && t > 0) {
-        // Linearly interpolate to exact ground crossing
-        const prevPy = originY + vy * (t - 1) + 0.5 * gravity * (t - 1) * (t - 1);
-        const frac = (groundY - prevPy) / (py - prevPy);
-        landingX = originX + vx * (t - 1 + frac);
-        landingX = Math.min(landingX, W - 10);
-        break;
-      }
-
-      points.push([Math.min(px, W - 10), py]);
-      t++;
-    }
-
-    if (points.length < 2) {
-      // Degenerate case (power = 0 or angle = 0): draw a flat line
-      arcPath.setAttribute('d', `M${originX},${groundY} L${originX + 5},${groundY}`);
-      return;
-    }
-
-    // Build smooth SVG path using cubic bezier
-    const d = this.buildSmoothPath(points);
-    arcPath.setAttribute('d', d);
-
-    // Update landing dot
-    if (arcLanding) {
-      arcLanding.setAttribute('cx', landingX.toString());
-      arcLanding.setAttribute('cy', groundY.toString());
-    }
-
-    // Update peak arrow: find highest (smallest Y) point
-    let peakX = originX;
-    let peakY = groundY;
-    for (const [x, y] of points) {
-      if (y < peakY) {
-        peakY = y;
-        peakX = x;
-      }
-    }
-
-    if (arcArrow) {
-      // Translate the arrow polygon to the peak
-      const size = 5;
-      const pts = `${peakX},${peakY - size} ${peakX - size},${peakY + size} ${peakX + size},${peakY + size}`;
-      arcArrow.setAttribute('points', pts);
-    }
-  }
-
-  /**
-   * Build a smooth SVG path string through an array of [x, y] points using
-   * Catmull-Rom converted to cubic bezier control points.
-   */
-  private buildSmoothPath(pts: Array<[number, number]>): string {
-    if (pts.length === 0) return '';
-    if (pts.length === 1) return `M${pts[0][0]},${pts[0][1]}`;
-
-    // Subsample to keep path manageable
-    const step = Math.max(1, Math.floor(pts.length / 30));
-    const sampled: Array<[number, number]> = pts.filter((_, i) => i % step === 0);
-    if (sampled[sampled.length - 1] !== pts[pts.length - 1]) {
-      sampled.push(pts[pts.length - 1]);
-    }
-
-    let d = `M${sampled[0][0].toFixed(1)},${sampled[0][1].toFixed(1)}`;
-
-    for (let i = 1; i < sampled.length; i++) {
-      const [x0, y0] = sampled[i - 1];
-      const [x1, y1] = sampled[i];
-      const cpX = (x0 + x1) / 2;
-      d += ` Q${cpX.toFixed(1)},${y0.toFixed(1)} ${x1.toFixed(1)},${y1.toFixed(1)}`;
-    }
-
-    return d;
+    dirLine.setAttribute('x1', ox.toString());
+    dirLine.setAttribute('y1', oy.toString());
+    dirLine.setAttribute('x2', tx.toFixed(1));
+    dirLine.setAttribute('y2', ty.toFixed(1));
   }
 
   // ─── Public API ────────────────────────────────────────────────────────────
 
-  /**
-   * Show the launch control panel (e.g. when gameplay begins).
-   */
   public show(): void {
-    if (this.container) {
-      this.container.classList.remove('hidden');
-    }
+    if (this.container) this.container.classList.remove('hidden');
   }
 
-  /**
-   * Hide the launch control panel (e.g. during menus or after tires run out).
-   */
   public hide(): void {
-    if (this.container) {
-      this.container.classList.add('hidden');
-    }
+    if (this.container) this.container.classList.add('hidden');
   }
 
-  /**
-   * Returns true when the panel is currently visible.
-   */
   public isVisible(): boolean {
     return !this.container?.classList.contains('hidden');
   }
 
-  /**
-   * Enable or disable the LAUNCH button (e.g. disable while a tire is in flight).
-   */
   public setLaunchEnabled(enabled: boolean): void {
     const btn = document.getElementById('lc-launch-btn') as HTMLButtonElement | null;
     if (btn) {
@@ -545,56 +428,38 @@ export class LaunchControlUI {
     }
   }
 
-  /**
-   * Programmatically set power value (0–1).
-   */
+  /** Set speed value (0–1). */
   public setPower(value: number): void {
     this.power = Math.min(this.POWER_MAX, Math.max(this.POWER_MIN, value));
     this.refreshDisplay();
   }
 
-  /**
-   * Programmatically set angle value (0–90 degrees).
-   */
+  /** Set direction value (−45 to +45 degrees). */
   public setAngle(value: number): void {
     this.angle = Math.min(this.ANGLE_MAX, Math.max(this.ANGLE_MIN, value));
     this.refreshDisplay();
   }
 
-  /**
-   * Get current power value (0–1).
-   */
+  /** Get current speed (0–1). */
   public getPower(): number {
     return this.power;
   }
 
-  /**
-   * Get current angle value (0–90 degrees).
-   */
+  /** Get current direction (−45 to +45 degrees). */
   public getAngle(): number {
     return this.angle;
   }
 
-  /**
-   * Returns the currently selected tire type.
-   */
   public getSelectedTireType(): TireType {
     return this.selectedTireType;
   }
 
-  /**
-   * Advances to the next tire type in the cycle (wraps around).
-   * Useful for binding to the T keyboard shortcut.
-   */
   public cycleTireType(): void {
     const idx = TIRE_ORDER.indexOf(this.selectedTireType);
     this.selectedTireType = TIRE_ORDER[(idx + 1) % TIRE_ORDER.length];
     this.refreshTireSelector();
   }
 
-  /**
-   * Remove the panel from the DOM and clean up event listeners.
-   */
   public destroy(): void {
     window.removeEventListener('keydown', this.keydownHandler);
     document.getElementById('launch-control-ui')?.remove();

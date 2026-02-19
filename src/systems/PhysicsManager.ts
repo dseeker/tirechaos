@@ -16,6 +16,11 @@ export class PhysicsManager {
     { mesh: BABYLON.Mesh; health: number; points: number }
   > = new Map();
 
+  // Shared material instances — contact materials are matched by object identity,
+  // so all bodies that should interact must reference the same instances.
+  private groundMaterial!: CANNON.Material;
+  private tireMaterialMap: Map<string, CANNON.Material> = new Map();
+
   constructor(config: PhysicsConfig = DEFAULT_PHYSICS_CONFIG) {
     this.config = config;
 
@@ -40,49 +45,88 @@ export class PhysicsManager {
    * Setup contact materials for different surface interactions
    */
   private setupContactMaterials(): void {
-    // Default material
-    const defaultMaterial = new CANNON.Material('default');
-
-    // Ground material (shared reference used for all tire-ground contacts)
-    const groundMaterial = new CANNON.Material('ground');
+    // Store on class so all bodies can reference the SAME instances.
+    // cannon-es matches ContactMaterial pairs by material.id (object identity),
+    // NOT by the name string.
+    this.groundMaterial = new CANNON.Material('ground');
 
     // Generic fallback tire material
     const tireMaterial = new CANNON.Material('tire');
-    const tireGroundContact = new CANNON.ContactMaterial(tireMaterial, groundMaterial, {
+    this.tireMaterialMap.set('tire', tireMaterial);
+    this.world.addContactMaterial(new CANNON.ContactMaterial(tireMaterial, this.groundMaterial, {
       friction: 0.8,
       restitution: 0.3,
       contactEquationStiffness: 1e8,
       contactEquationRelaxation: 3,
-    });
-    this.world.addContactMaterial(tireGroundContact);
+    }));
 
-    // Per-tire-type contact materials with distinct restitution values.
-    // Material names match the `tire_${TireType}` pattern used in Tire.createPhysicsBody().
+    // Per-tire-type contact materials.
+    // Values must match TIRE_CONFIGS in src/types/index.ts — friction and
+    // restitution are the single source of truth for each tire type.
     const perTypeMaterials: Array<{ name: string; friction: number; restitution: number }> = [
-      { name: 'tire_standard',      friction: 0.8,  restitution: 0.4  },
+      { name: 'tire_standard',      friction: 0.8,  restitution: 0.3  },
       { name: 'tire_monster_truck', friction: 0.9,  restitution: 0.2  },
-      { name: 'tire_racing_slick',  friction: 0.95, restitution: 0.35 },
-      { name: 'tire_tractor',       friction: 1.0,  restitution: 0.15 },
-      { name: 'tire_spare',         friction: 0.6,  restitution: 0.8  },
+      { name: 'tire_racing_slick',  friction: 1.0,  restitution: 0.1  },
+      { name: 'tire_tractor',       friction: 1.2,  restitution: 0.15 },
+      { name: 'tire_spare',         friction: 0.6,  restitution: 0.6  },
     ];
 
     perTypeMaterials.forEach(({ name, friction, restitution }) => {
       const mat = new CANNON.Material(name);
-      const contact = new CANNON.ContactMaterial(mat, groundMaterial, {
+      this.tireMaterialMap.set(name, mat);
+      this.world.addContactMaterial(new CANNON.ContactMaterial(mat, this.groundMaterial, {
         friction,
         restitution,
         contactEquationStiffness: 1e8,
         contactEquationRelaxation: 3,
-      });
-      this.world.addContactMaterial(contact);
+      }));
     });
 
     // Default contact
-    const defaultContact = new CANNON.ContactMaterial(defaultMaterial, defaultMaterial, {
+    const defaultMaterial = new CANNON.Material('default');
+    this.world.addContactMaterial(new CANNON.ContactMaterial(defaultMaterial, defaultMaterial, {
       friction: 0.5,
       restitution: 0.3,
-    });
-    this.world.addContactMaterial(defaultContact);
+    }));
+  }
+
+  /**
+   * Return the shared CANNON.Material for a given tire type name (e.g. 'tire_standard').
+   * Falls back to the generic 'tire' material if the type isn't registered.
+   * Tire bodies MUST use these instances so that contact materials fire correctly.
+   */
+  public getTireMaterial(name: string): CANNON.Material {
+    return this.tireMaterialMap.get(name) ?? this.tireMaterialMap.get('tire')!;
+  }
+
+  /**
+   * Add a heightfield terrain body to the physics world.
+   * @param heights 2D array [xi][zi] of Y values
+   * @param elementSize World-unit spacing between height samples
+   * @param offsetX World X position of the first column (xi=0)
+   * @param offsetZ World Z position of the first row   (zi=0)
+   */
+  public addTerrainBody(
+    heights: number[][],
+    elementSize: number,
+    offsetX: number,
+    offsetZ: number,
+    baseY: number = 0,
+  ): CANNON.Body {
+    const shape = new CANNON.Heightfield(heights, { elementSize });
+
+    const body = new CANNON.Body({ mass: 0, material: this.groundMaterial });
+    body.addShape(shape);
+
+    // Heightfield local origin is at its first sample (xi=0, zi=0).
+    // Translate by the world offset + baseY so it aligns with the Babylon mesh.
+    body.position.set(offsetX, baseY, offsetZ);
+
+    // CANNON.Heightfield is oriented in the local XZ plane but Cannon's Y is up.
+    // A 90° rotation around the X axis is NOT needed — the shape already uses
+    // X for columns and Z for rows.  We only need the body to sit at the right Y.
+    this.world.addBody(body);
+    return body;
   }
 
   /**
@@ -104,7 +148,7 @@ export class PhysicsManager {
     const body = new CANNON.Body({
       mass: 0, // Static body
       shape: shape,
-      material: new CANNON.Material('ground'),
+      material: this.groundMaterial,
     });
 
     // Match mesh position and rotation (Babylon uses same format)
@@ -178,27 +222,28 @@ export class PhysicsManager {
     material?: CANNON.Material,
   ): CANNON.Body {
     // Use cylinder shape for tire
-    const shape = new CANNON.Cylinder(radius, radius, width, 16);
+    // 20 segments gives a much smoother cylinder than 16, reducing the "ticking"
+    // artefact on flat terrain caused by flat polygon faces contacting the surface.
+    const shape = new CANNON.Cylinder(radius, radius, width, 20);
 
     const body = new CANNON.Body({
       mass: mass,
       shape: shape,
-      material: material || new CANNON.Material('tire'),
+      material: material || this.tireMaterialMap.get('tire')!,
       linearDamping: 0.1,
       angularDamping: 0.05,
     });
 
-    // Rotate cylinder to be oriented like a wheel (around Z axis)
-    const quaternion = new CANNON.Quaternion();
-    quaternion.setFromAxisAngle(new CANNON.Vec3(0, 0, 1), Math.PI / 2);
-    shape.transformAllPoints(new CANNON.Vec3(), quaternion);
-
+    // Do NOT bake the rotation into the shape vertices.
+    // Instead, set the body's initial quaternion to Rx(90°) so the Y-axis
+    // cylinder is rotated to have its axis along Z in world space.
+    // This matches the Babylon mesh which also uses rotationQuaternion Rx(90°).
     body.position.set(mesh.position.x, mesh.position.y, mesh.position.z);
     body.quaternion.set(
-      mesh.rotationQuaternion?.x || 0,
-      mesh.rotationQuaternion?.y || 0,
-      mesh.rotationQuaternion?.z || 0,
-      mesh.rotationQuaternion?.w || 1,
+      mesh.rotationQuaternion?.x ?? 0,
+      mesh.rotationQuaternion?.y ?? 0,
+      mesh.rotationQuaternion?.z ?? 0,
+      mesh.rotationQuaternion?.w ?? 1,
     );
 
     this.world.addBody(body);
@@ -294,8 +339,10 @@ export class PhysicsManager {
   public update(deltaTime: number): void {
     // Step physics simulation — apply timeScale for slow-motion support
     const scaledDelta = deltaTime * this.timeScale;
-    const timeStep = Math.min(scaledDelta, this.config.timeStep);
-    this.world.step(this.config.timeStep, timeStep, this.config.maxSubSteps);
+    // Pass scaledDelta (uncapped) as timeSinceLastCall so cannon-es can subdivide
+    // slow frames into multiple sub-steps.  Capping it was causing physics to run
+    // in slow motion at <60fps.  maxSubSteps caps the total work per frame.
+    this.world.step(this.config.timeStep, scaledDelta, this.config.maxSubSteps);
 
     // Sync visual meshes with physics bodies
     this.syncBodies();
