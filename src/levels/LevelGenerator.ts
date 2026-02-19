@@ -563,7 +563,7 @@ export class LevelGenerator {
         width:        TERRAIN_WIDTH,
         height:       TERRAIN_DEPTH,
         subdivisionsX: TERRAIN_SUBDIV_X,
-        subdivisionsZ: TERRAIN_SUBDIV_Z,
+        subdivisionsY: TERRAIN_SUBDIV_Z,
         updatable:    true,
       },
       this.scene,
