@@ -25,12 +25,8 @@ async function startGame(page: any) {
   await waitForLoaded(page);
   await page.click('#btn-start');
   await page.waitForSelector('#game-hud', { state: 'visible', timeout: 8000 });
-  // Poll until the physics world has at least one body (terrain heightfield).
-  // Avoids a fixed 1500 ms sleep — resolves in ~200–500 ms on fast hardware.
-  await page.waitForFunction(
-    () => ((window as any).__gameManager?.physicsManager?.world?.bodies?.length ?? 0) >= 1,
-    { timeout: 10000 },
-  );
+  // Let the terrain build and physics settle before interacting
+  await page.waitForTimeout(1500);
 }
 
 /** Read a physics value from the live game via the exposed __gameManager. */
