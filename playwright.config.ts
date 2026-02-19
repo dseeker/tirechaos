@@ -17,7 +17,18 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        // Babylon.js needs WebGL — enable it in headless Chromium.
+        launchOptions: {
+          args: [
+            '--enable-webgl',
+            '--ignore-gpu-blocklist',
+            '--disable-gpu-sandbox',
+            '--no-sandbox',
+          ],
+        },
+      },
     },
     {
       name: 'firefox',
