@@ -754,8 +754,9 @@ export class GameManager {
     // meshes created by launchTire()).  Slice to avoid iterating a mutating array.
     // isDisposed() guards against double-disposal of meshes already cleaned up
     // by clearLevel() above.
+    // BABYLON.Camera is not in scene.meshes, so no camera guard is needed.
     this.scene.meshes.slice().forEach((mesh) => {
-      if (mesh !== this.camera as any && !mesh.isDisposed()) {
+      if (!mesh.isDisposed()) {
         mesh.dispose();
       }
     });
@@ -772,7 +773,9 @@ export class GameManager {
     }
 
     const currentTime = performance.now();
-    const deltaTime = (currentTime - this.lastTime) / 1000;
+    // Cap deltaTime to 250 ms so a tab-switch or debugger pause doesn't cause
+    // the physics world to jump forward by many seconds in a single step.
+    const deltaTime = Math.min((currentTime - this.lastTime) / 1000, 0.25);
     this.lastTime = currentTime;
 
     // Update performance manager

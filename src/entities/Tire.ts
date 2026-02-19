@@ -457,34 +457,30 @@ export class Tire {
   private updateTrail(): void {
     if (!this.isLaunched) return;
 
-    // Add current position to trail
     this.trailPoints.push(this.mesh.position.clone());
-
-    // Keep only last 50 points
     if (this.trailPoints.length > 50) {
       this.trailPoints.shift();
     }
 
-    // Update or create trail mesh
-    if (this.trailPoints.length >= 2) {
-      // Dispose old trail
-      if (this.trail) {
-        this.trail.dispose();
-      }
+    if (this.trailPoints.length < 2) return;
 
-      // Create new trail line
+    if (!this.trail) {
+      // First creation — mark as updatable so we can mutate it in-place later.
       this.trail = BABYLON.MeshBuilder.CreateLines(
-        `trail_${Date.now()}`,
-        {
-          points: this.trailPoints,
-          updatable: true,
-        },
+        'trail',
+        { points: this.trailPoints, updatable: true },
         this.scene,
       );
-
-      // Set trail appearance
       this.trail.color = new BABYLON.Color3(1, 1, 1);
       this.trail.alpha = 0.5;
+    } else {
+      // Subsequent frames — update the existing GPU buffer without reallocating.
+      // CreateLines with `instance` overwrites the vertex data in-place.
+      BABYLON.MeshBuilder.CreateLines(
+        'trail',
+        { points: this.trailPoints, instance: this.trail },
+        this.scene,
+      );
     }
   }
 
