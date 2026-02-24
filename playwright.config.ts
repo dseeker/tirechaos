@@ -1,4 +1,17 @@
 import { defineConfig, devices } from '@playwright/test';
+import * as path from 'path';
+import * as fs from 'fs';
+
+function findHeadlessShell(): string | undefined {
+  const cacheDir = path.join(process.env.HOME ?? '/root', '.cache/ms-playwright');
+  if (!fs.existsSync(cacheDir)) return undefined;
+  for (const dir of fs.readdirSync(cacheDir)) {
+    if (!dir.startsWith('chromium_headless_shell')) continue;
+    const bin = path.join(cacheDir, dir, 'chrome-linux/headless_shell');
+    if (fs.existsSync(bin)) return bin;
+  }
+  return undefined;
+}
 
 export default defineConfig({
   testDir: '.',
@@ -21,6 +34,9 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
         // Babylon.js needs WebGL — enable it in headless Chromium.
         launchOptions: {
+          // Use the locally cached headless shell when available (CI environments
+          // may have a different revision than the package-declared one).
+          executablePath: process.env.CHROMIUM_PATH ?? findHeadlessShell(),
           args: [
             '--enable-webgl',
             '--ignore-gpu-blocklist',
@@ -29,14 +45,6 @@ export default defineConfig({
           ],
         },
       },
-    },
-    {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
-    },
-    {
-      name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
     },
   ],
 

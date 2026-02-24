@@ -182,6 +182,17 @@ export class Tire {
       const otherBody = event.body;
       const isGround = otherBody.mass === 0;
 
+      // Log significant terrain hits — useful for debugging and e2e tests.
+      if (isGround) {
+        const p = this.body.position;
+        const { restitution, friction } = this.config.properties;
+        console.log(
+          `🌍 terrain-hit [${this.config.type}] speed=${speed.toFixed(1)} m/s ` +
+            `restitution=${restitution} friction=${friction} ` +
+            `pos=(${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)})`,
+        );
+      }
+
       // Trigger particle effect
       if (this.particleManager) {
         this.particleManager.createImpactParticles(contactPoint, speed, isGround);
