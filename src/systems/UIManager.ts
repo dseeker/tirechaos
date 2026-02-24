@@ -72,16 +72,6 @@ export class UIManager {
         </div>
       </div>
 
-      <div class="power-meter-container">
-        <div class="power-label">POWER</div>
-        <div class="power-bar">
-          <div id="power-meter" class="power-fill"></div>
-        </div>
-        <div class="power-angle">
-          <span id="angle-value">45°</span>
-        </div>
-      </div>
-
       <div id="trajectory-indicator" class="trajectory-indicator hidden">
         <div class="trajectory-arrow">↗</div>
       </div>

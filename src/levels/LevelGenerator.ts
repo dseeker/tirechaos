@@ -616,17 +616,19 @@ export class LevelGenerator {
     this.groundMesh = ground;
 
     // --- CANNON heightfield ---
-    // Build [xi][zi] height array in the same spatial order as the mesh.
-    // CANNON Heightfield data[xi][zi] → world position:
-    //   worldX = offsetX + xi * elementSize
-    //   worldZ = offsetZ + zi * elementSize
-    //   worldY = body.position.y + heights[xi][zi]
+    // cannon-es Heightfield has its height values along local Z and rows along local Y.
+    // The body needs a -90° Rx rotation so local Z → world Y (height up).
+    // After that rotation, rows run in the -world-Z direction:
+    //   world Z of row zi = offsetZ - zi * elementSize
+    // where offsetZ is the BACK edge of the terrain (TERRAIN_ORIGIN_Z + TERRAIN_DEPTH).
+    // Heights are therefore sampled at worldZ = offsetZ - zi * elementSize.
     const heights: number[][] = [];
+    const offsetZ = TERRAIN_ORIGIN_Z + TERRAIN_DEPTH;
     for (let xi = 0; xi < nVertX; xi++) {
       heights[xi] = [];
       for (let zi = 0; zi < nVertZ; zi++) {
         const worldX = TERRAIN_ORIGIN_X + xi * TERRAIN_ELEMENT_SIZE;
-        const worldZ = TERRAIN_ORIGIN_Z + zi * TERRAIN_ELEMENT_SIZE;
+        const worldZ = offsetZ - zi * TERRAIN_ELEMENT_SIZE;
         heights[xi][zi] = terrainHeightAt(worldX, worldZ, seed);
       }
     }
@@ -635,7 +637,7 @@ export class LevelGenerator {
       heights,
       TERRAIN_ELEMENT_SIZE,
       TERRAIN_ORIGIN_X,
-      TERRAIN_ORIGIN_Z,
+      offsetZ,
       TERRAIN_BASE_Y,
     );
   }

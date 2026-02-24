@@ -559,9 +559,8 @@ body {
 .launch-control {
   position: fixed;
   bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 460px;
+  left: 20px;
+  width: 380px;
   background: var(--lc-bg);
   border: 2px solid var(--lc-border);
   border-radius: 8px;
@@ -910,7 +909,7 @@ body {
   font-family: 'Arial Black', 'Impact', sans-serif;
   font-size: 9px;
   font-weight: bold;
-  letter-spacing: 1px;
+  letter-spacing: 0px;
   text-transform: uppercase;
   color: var(--text-dim);
   background: rgba(255, 255, 255, 0.05);
@@ -974,7 +973,8 @@ body {
   }
 
   .launch-control {
-    width: 94%;
+    width: calc(100% - 30px);
+    left: 15px;
     bottom: 12px;
   }
 

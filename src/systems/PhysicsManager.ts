@@ -122,9 +122,11 @@ export class PhysicsManager {
     // Translate by the world offset + baseY so it aligns with the Babylon mesh.
     body.position.set(offsetX, baseY, offsetZ);
 
-    // CANNON.Heightfield is oriented in the local XZ plane but Cannon's Y is up.
-    // A 90° rotation around the X axis is NOT needed — the shape already uses
-    // X for columns and Z for rows.  We only need the body to sit at the right Y.
+    // cannon-es Heightfield stores heights along local Z and rows along local Y.
+    // Rotating -90° around X maps: local Z → world Y (height), local Y → world -Z (rows).
+    // This matches the planeBody example in the cannon-es source:
+    //   planeBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0) // make it face up
+    body.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
     this.world.addBody(body);
     return body;
   }
