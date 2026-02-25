@@ -26,6 +26,7 @@ export class Tire {
   private scene: BABYLON.Scene;
   private physicsManager: PhysicsManager;
   private trailPoints: BABYLON.Vector3[] = [];
+  private trailColors: BABYLON.Color4[] = [];
   private trail?: BABYLON.LinesMesh;
 
   // Optional effect dependencies (injected after construction when available)
@@ -463,33 +464,62 @@ export class Tire {
   }
 
   /**
-   * Update trail effect
+   * Map a normalised speed value (0–1) to a Color4 trail hue.
+   * Slow  → cool steel blue  (0.3, 0.6, 1.0)
+   * Mid   → lime green       (0.3, 1.0, 0.3)
+   * Fast  → hot orange/red   (1.0, 0.35, 0.0)
+   * Alpha fades from 0 at the tail to 0.75 at the head.
+   */
+  private speedToTrailColor(speedNorm: number, alpha: number): BABYLON.Color4 {
+    // Two-stop gradient: blue → orange
+    const r = Math.min(1.0, speedNorm * 2.0);           // 0→0, 0.5→1, 1→1
+    const g = speedNorm < 0.5
+      ? speedNorm * 2.0                                   // 0→0, 0.5→1
+      : 1.0 - (speedNorm - 0.5) * 2.0;                  // 0.5→1, 1→0
+    const b = Math.max(0.0, 1.0 - speedNorm * 2.5);     // 0→1, 0.4→0
+    return new BABYLON.Color4(r, g, b, alpha);
+  }
+
+  /**
+   * Update trail effect with speed-based color gradient.
    */
   private updateTrail(): void {
     if (!this.isLaunched) return;
 
+    const MAX_TRAIL = 50;
+    const speed = this.getSpeed();
+    const speedNorm = Math.min(speed / 22, 1.0); // 22 m/s ≈ full saturation
+
     this.trailPoints.push(this.mesh.position.clone());
-    if (this.trailPoints.length > 50) {
+    this.trailColors.push(this.speedToTrailColor(speedNorm, 0.8)); // head is opaque
+
+    if (this.trailPoints.length > MAX_TRAIL) {
       this.trailPoints.shift();
+      this.trailColors.shift();
     }
 
     if (this.trailPoints.length < 2) return;
 
+    // Re-compute alpha gradient so the tail fades to transparent each frame
+    const n = this.trailColors.length;
+    const colorsCopy = this.trailColors.map((c, i) => {
+      const alpha = (i / (n - 1)) * 0.75; // 0 at tail, 0.75 at head
+      return new BABYLON.Color4(c.r, c.g, c.b, alpha);
+    });
+
     if (!this.trail) {
-      // First creation — mark as updatable so we can mutate it in-place later.
+      // First creation — must supply colors array and mark updatable
       this.trail = BABYLON.MeshBuilder.CreateLines(
         'trail',
-        { points: this.trailPoints, updatable: true },
+        { points: this.trailPoints, colors: colorsCopy, updatable: true },
         this.scene,
       );
-      this.trail.color = new BABYLON.Color3(1, 1, 1);
-      this.trail.alpha = 0.5;
+      this.trail.useVertexColors = true;
+      this.trail.alpha = 1.0; // per-vertex alpha handles fade
     } else {
-      // Subsequent frames — update the existing GPU buffer without reallocating.
-      // CreateLines with `instance` overwrites the vertex data in-place.
       BABYLON.MeshBuilder.CreateLines(
         'trail',
-        { points: this.trailPoints, instance: this.trail },
+        { points: this.trailPoints, colors: colorsCopy, instance: this.trail },
         this.scene,
       );
     }
@@ -623,6 +653,8 @@ export class Tire {
     if (this.trail) {
       this.trail.dispose();
     }
+    this.trailPoints = [];
+    this.trailColors = [];
 
     console.log('🗑️ Tire destroyed');
   }

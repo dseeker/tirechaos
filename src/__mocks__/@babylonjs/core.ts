@@ -97,6 +97,15 @@ export class Color3 {
   }
 }
 
+export class Color4 {
+  constructor(
+    public r: number = 1,
+    public g: number = 1,
+    public b: number = 1,
+    public a: number = 1,
+  ) {}
+}
+
 export class Quaternion {
   constructor(public x: number = 0, public y: number = 0, public z: number = 0, public w: number = 1) {}
 

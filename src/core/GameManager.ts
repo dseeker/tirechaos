@@ -177,6 +177,7 @@ export class GameManager {
 
     this.setupLights();
     this.setupPostProcessing();
+    this.setupFog();
     this.setupEventListeners();
 
     console.log('🎨 Babylon.js GameManager initialized with PBR pipeline!');
@@ -235,13 +236,15 @@ export class GameManager {
     this.shadowGenerator.bias = 0.001;
     this.shadowGenerator.normalBias = 0.02;
 
-    // IBL environment for physically-correct PBR reflections
+    // IBL environment for physically-correct PBR reflections + visible sky dome
     const envTexture = BABYLON.CubeTexture.CreateFromPrefilteredData(
       'https://playground.babylonjs.com/textures/environment.env',
       this.scene,
     );
     this.scene.environmentTexture = envTexture;
     this.scene.environmentIntensity = 0.7;
+    // Reuse the same env texture as a large skybox so the horizon matches IBL
+    this.scene.createDefaultSkybox(envTexture, true /* PBR */, 800, 0.3 /* blur */);
 
     // Glow layer — makes bright emissive surfaces (sparks, UI, explosions) bloom softly
     this.glowLayer = new BABYLON.GlowLayer('glow', this.scene, {
@@ -357,6 +360,20 @@ export class GameManager {
   }
 
   /**
+   * Setup atmospheric fog for depth and distance cues.
+   * Exponential squared fog fades realistically — nearby objects are clear,
+   * distant ones dissolve into the sky colour. The fog colour is updated
+   * whenever the level sky colour changes so they always match.
+   */
+  private setupFog(): void {
+    this.scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
+    this.scene.fogDensity = 0.012;
+    // Warm haze that matches the golden-hour sky feel
+    this.scene.fogColor = new BABYLON.Color3(0.72, 0.82, 0.95);
+    console.log('🌫️ Atmospheric fog enabled');
+  }
+
+  /**
    * Setup event listeners
    */
   private setupEventListeners(): void {
@@ -461,6 +478,26 @@ export class GameManager {
       this.uiManager.hideLeaderboard();
     });
 
+    // Quality-change: PerformanceManager dispatches 'performanceSettingsChanged'
+    // after every setQualityLevel() call. Use it to toggle effects that live
+    // outside the DefaultRenderingPipeline (MotionBlur, GlowLayer, SSAO).
+    window.addEventListener('performanceSettingsChanged', (e: Event) => {
+      const { motionBlurEnabled, ambientOcclusionEnabled } = (e as CustomEvent).detail as {
+        motionBlurEnabled: boolean;
+        ambientOcclusionEnabled: boolean;
+        qualityLevel: string;
+      };
+
+      if (this.motionBlur) {
+        // MotionBlurPostProcess has no isEnabled; zero strength disables the effect
+        this.motionBlur.motionStrength = motionBlurEnabled ? 0.35 : 0;
+      }
+      if (this.glowLayer) {
+        // GlowLayer is worth keeping on medium+ quality; disable only on low
+        this.glowLayer.isEnabled = ambientOcclusionEnabled || motionBlurEnabled;
+      }
+    });
+
     // Settings events
     window.addEventListener('settings-close', () => this.uiManager.hideSettings());
     window.addEventListener('music-volume-change', (e: Event) => {
@@ -504,9 +541,14 @@ export class GameManager {
   public async init(): Promise<void> {
     console.log('🎮 Initializing TIRE CHAOS with Babylon.js...');
 
-    // Setup performance settings
+    // Setup performance settings — default to high; players can lower in Settings
     this.performanceManager.setQualityLevel('high');
     this.performanceManager.attachPipeline(this.defaultPipeline!);
+
+    // SSAO2 (Screen-Space Ambient Occlusion) — activates on high quality only.
+    // SSAO must come after attachPipeline so the DefaultRenderingPipeline has
+    // already been created; it runs as a separate pipeline alongside it.
+    this.enableSSAO();
 
     // Setup browser features
     this.browserManager.applyGameRestrictions();
@@ -1225,8 +1267,13 @@ export class GameManager {
   private loadLevelForRound(roundNumber: number): void {
     const layout = getLevelLayout(roundNumber);
 
-    // Apply sky colour
+    // Apply sky colour and match fog haze to it
     this.scene.clearColor = layout.skyColor;
+    this.scene.fogColor = new BABYLON.Color3(
+      layout.skyColor.r * 0.9,
+      layout.skyColor.g * 0.92,
+      layout.skyColor.b * 1.0,
+    );
 
     // Re-create the levelGenerator each time so it can shadow-register correctly
     this.levelGenerator = new LevelGenerator(
