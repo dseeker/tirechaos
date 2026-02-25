@@ -77,6 +77,10 @@ export class GameManager {
   // Rendering pipeline
   private defaultPipeline?: BABYLON.DefaultRenderingPipeline;
   private shadowGenerator?: BABYLON.ShadowGenerator;
+  private glowLayer?: BABYLON.GlowLayer;
+  private motionBlur?: BABYLON.MotionBlurPostProcess;
+  private lensFlareSystem?: BABYLON.LensFlareSystem;
+  private sunLight?: BABYLON.DirectionalLight;
 
   // Game state
   public gameState: GameState;
@@ -192,40 +196,86 @@ export class GameManager {
    * Setup advanced lighting with PBR support
    */
   private setupLights(): void {
-    // Ambient light for overall illumination
+    // Hemispheric sky/ground light for ambient fill
+    // Sky colour matches the gameplay sky; ground colour is warm earth
     const ambientLight = new BABYLON.HemisphericLight(
       'ambient',
       new BABYLON.Vector3(0, 1, 0),
-      this.scene
+      this.scene,
     );
-    ambientLight.intensity = 0.6;
-    ambientLight.groundColor = new BABYLON.Color3(0.36, 0.31, 0.22); // Brownish ground
+    ambientLight.intensity = 0.45;
+    ambientLight.diffuse = new BABYLON.Color3(0.9, 0.95, 1.0);   // Slightly cool sky
+    ambientLight.groundColor = new BABYLON.Color3(0.42, 0.36, 0.24); // Warm earth bounce
 
-    // Directional light (sun) with advanced shadows
-    const sunLight = new BABYLON.DirectionalLight(
+    // Primary directional light (sun) – angled for long dramatic shadows
+    this.sunLight = new BABYLON.DirectionalLight(
       'sun',
-      new BABYLON.Vector3(-1, -2, -1),
-      this.scene
+      new BABYLON.Vector3(-0.6, -1.8, -0.8).normalize(),
+      this.scene,
     );
-    sunLight.position = new BABYLON.Vector3(50, 50, 25);
-    sunLight.intensity = 0.8;
+    this.sunLight.position = new BABYLON.Vector3(60, 80, 40);
+    this.sunLight.intensity = 1.1;
+    this.sunLight.diffuse = new BABYLON.Color3(1.0, 0.96, 0.88);   // Warm sunlight
+    this.sunLight.specular = new BABYLON.Color3(1.0, 0.98, 0.92);
 
-    // Advanced shadow generator
-    this.shadowGenerator = new BABYLON.ShadowGenerator(2048, sunLight);
-    this.shadowGenerator.useExponentialShadowMap = true;
-    this.shadowGenerator.usePoissonSampling = true;
+    // Soft fill light from the opposite side — prevents fully black shadows
+    const fillLight = new BABYLON.DirectionalLight(
+      'fill',
+      new BABYLON.Vector3(0.5, -0.4, 0.6).normalize(),
+      this.scene,
+    );
+    fillLight.intensity = 0.22;
+    fillLight.diffuse = new BABYLON.Color3(0.55, 0.65, 0.85);   // Cool blue fill
+
+    // Shadow generator using PCF for smooth, soft contact shadows
+    this.shadowGenerator = new BABYLON.ShadowGenerator(2048, this.sunLight);
+    this.shadowGenerator.usePercentageCloserFiltering = true;
     this.shadowGenerator.filteringQuality = BABYLON.ShadowGenerator.QUALITY_HIGH;
-    this.shadowGenerator.darkness = 0.3;
+    this.shadowGenerator.darkness = 0.35;
+    this.shadowGenerator.bias = 0.001;
+    this.shadowGenerator.normalBias = 0.02;
 
-    // Environment texture for PBR reflections
+    // IBL environment for physically-correct PBR reflections
     const envTexture = BABYLON.CubeTexture.CreateFromPrefilteredData(
       'https://playground.babylonjs.com/textures/environment.env',
-      this.scene
+      this.scene,
     );
     this.scene.environmentTexture = envTexture;
-    this.scene.environmentIntensity = 0.5;
+    this.scene.environmentIntensity = 0.7;
 
-    console.log('✨ Advanced lighting setup complete (PBR + Shadows)');
+    // Glow layer — makes bright emissive surfaces (sparks, UI, explosions) bloom softly
+    this.glowLayer = new BABYLON.GlowLayer('glow', this.scene, {
+      mainTextureFixedSize: 512,
+      blurKernelSize: 48,
+      mainTextureSamples: 2,
+    });
+    this.glowLayer.intensity = 0.65;
+
+    // Lens flare system attached to the sun light for cinematic realism
+    this.lensFlareSystem = new BABYLON.LensFlareSystem('lensFlares', this.sunLight, this.scene);
+    new BABYLON.LensFlare(
+      0.2,
+      0,
+      new BABYLON.Color3(1.0, 0.95, 0.8),
+      'https://playground.babylonjs.com/textures/flare.png',
+      this.lensFlareSystem,
+    );
+    new BABYLON.LensFlare(
+      0.08,
+      0.4,
+      new BABYLON.Color3(0.8, 0.9, 1.0),
+      'https://playground.babylonjs.com/textures/flare.png',
+      this.lensFlareSystem,
+    );
+    new BABYLON.LensFlare(
+      0.05,
+      -0.3,
+      new BABYLON.Color3(1.0, 0.8, 0.7),
+      'https://playground.babylonjs.com/textures/flare.png',
+      this.lensFlareSystem,
+    );
+
+    console.log('✨ Advanced lighting setup complete (PCF shadows + GlowLayer + Lens Flares)');
   }
 
   /**
@@ -234,53 +284,76 @@ export class GameManager {
   private setupPostProcessing(): void {
     const config = DEFAULT_POSTPROCESSING_CONFIG;
 
-    // Default rendering pipeline (includes most effects)
+    // HDR pipeline — must be HDR:true so bloom operates in linear space
     this.defaultPipeline = new BABYLON.DefaultRenderingPipeline(
       'defaultPipeline',
       true, // HDR
       this.scene,
-      [this.camera]
+      [this.camera],
     );
 
-    // Anti-aliasing
+    // MSAA — 4× for smooth edges without heavy cost
     this.defaultPipeline.samples = 4;
 
-    // Bloom effect
+    // Sharpening — counteract the slight softness from MSAA + bloom
+    this.defaultPipeline.sharpenEnabled = true;
+    this.defaultPipeline.sharpen.edgeAmount = 0.3;
+    this.defaultPipeline.sharpen.colorAmount = 1.0;
+
+    // Bloom — tuned for punchy but not over-the-top look
     if (config.bloom.enabled) {
       this.defaultPipeline.bloomEnabled = true;
-      this.defaultPipeline.bloomThreshold = config.bloom.threshold;
-      this.defaultPipeline.bloomWeight = config.bloom.weight;
-      this.defaultPipeline.bloomKernel = config.bloom.kernel;
-      this.defaultPipeline.bloomScale = 0.5;
+      this.defaultPipeline.bloomThreshold = 0.65;  // Lower = more surfaces bloom
+      this.defaultPipeline.bloomWeight = 0.35;
+      this.defaultPipeline.bloomKernel = 80;
+      this.defaultPipeline.bloomScale = 0.6;
     }
 
-    // Image processing (tone mapping, contrast, exposure)
+    // Image processing — ACES tone-mapping + warm grade
     this.defaultPipeline.imageProcessingEnabled = true;
     this.defaultPipeline.imageProcessing.toneMappingEnabled = true;
-    this.defaultPipeline.imageProcessing.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
-    this.defaultPipeline.imageProcessing.contrast = 1.2;
-    this.defaultPipeline.imageProcessing.exposure = 1.0;
+    this.defaultPipeline.imageProcessing.toneMappingType =
+      BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
+    this.defaultPipeline.imageProcessing.contrast = 1.15;
+    this.defaultPipeline.imageProcessing.exposure = 1.1;
+    // Subtle warm grade — slight orange lift in shadows, cool highlights
+    this.defaultPipeline.imageProcessing.colorGradingEnabled = false; // Use manual curves
 
-    // Chromatic aberration
+    // Chromatic aberration — very subtle, noticeable only on fast camera moves
     if (config.chromaticAberration.enabled) {
       this.defaultPipeline.chromaticAberrationEnabled = true;
-      this.defaultPipeline.chromaticAberration.aberrationAmount = config.chromaticAberration.aberrationAmount;
+      this.defaultPipeline.chromaticAberration.aberrationAmount = 0.4;
+      this.defaultPipeline.chromaticAberration.radialIntensity = 1.5;
     }
 
-    // Depth of Field (disabled by default, can enable for cinematic shots)
-    if (config.depthOfField.enabled) {
-      this.defaultPipeline.depthOfFieldEnabled = true;
-      this.defaultPipeline.depthOfFieldBlurLevel = BABYLON.DepthOfFieldEffectBlurLevel.Medium;
-      this.defaultPipeline.depthOfField.focalLength = config.depthOfField.focalLength;
-      this.defaultPipeline.depthOfField.fStop = config.depthOfField.fStop;
-    }
+    // Depth of Field — mild settings; focus pulled dynamically by CameraDirector
+    this.defaultPipeline.depthOfFieldEnabled = true;
+    this.defaultPipeline.depthOfFieldBlurLevel = BABYLON.DepthOfFieldEffectBlurLevel.Low;
+    this.defaultPipeline.depthOfField.focalLength = 55;       // 55 mm telephoto feel
+    this.defaultPipeline.depthOfField.fStop = 2.8;            // Moderate bokeh
+    this.defaultPipeline.depthOfField.focusDistance = 15000;  // 15 m focus distance (mm)
+    this.defaultPipeline.depthOfField.lensSize = 50;
 
-    // Grain effect for film-like quality
+    // Film grain — animated for organic, hand-held camera feel
     this.defaultPipeline.grainEnabled = true;
-    this.defaultPipeline.grain.intensity = 5;
+    this.defaultPipeline.grain.intensity = 8;
     this.defaultPipeline.grain.animated = true;
 
-    console.log('🌟 Post-processing pipeline enabled (Bloom, HDR, Tone Mapping)');
+    // Motion blur — added as a separate post-process for per-object velocity blur
+    this.motionBlur = new BABYLON.MotionBlurPostProcess(
+      'motionBlur',
+      this.scene,
+      1.0,
+      this.camera,
+    );
+    this.motionBlur.motionStrength = 0.35;
+    this.motionBlur.motionBlurSamples = 16;
+    this.motionBlur.isObjectBased = true; // Per-object velocity (more realistic)
+
+    // Pass the pipeline to ScreenEffects so it can drive chromatic aberration / DOF
+    this.screenEffects.setPipeline(this.defaultPipeline);
+
+    console.log('🌟 Post-processing pipeline enabled (Bloom + DOF + MotionBlur + Sharpening)');
   }
 
   /**
@@ -796,6 +869,9 @@ export class GameManager {
     this.physicsManager.update(deltaTime);
     this.cameraDirector.update(deltaTime);
 
+    // Rack-focus: push the CameraDirector's smoothed focus distance into ScreenEffects / DOF
+    this.screenEffects.setFocusDistance(this.cameraDirector.focusDistance);
+
     // Update active tires
     this.activeTires.forEach((tire) => {
       tire.update(deltaTime);
@@ -1088,6 +1164,12 @@ export class GameManager {
   public destroy(): void {
     this.engine.stopRenderLoop();
     this.clearScene();
+
+    if (this.glowLayer) this.glowLayer.dispose();
+    if (this.motionBlur) this.motionBlur.dispose();
+    if (this.lensFlareSystem) this.lensFlareSystem.dispose();
+    if (this.defaultPipeline) this.defaultPipeline.dispose();
+
     this.scene.dispose();
     this.engine.dispose();
     this.launchControlUI.destroy();
