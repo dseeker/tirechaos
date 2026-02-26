@@ -272,6 +272,89 @@ export class ParticleManager {
         this.removeParticleSystem(particleSystem);
       }, fadeDuration);
     }, burstDuration);
+
+    // Heavy ground hits get a supplemental mud splatter layer
+    if (isGround && intensity > 0.35) {
+      this.createMudSplash(position.clone(), velocity);
+    }
+  }
+
+  /**
+   * Heavy mud splatter for fast terrain impacts – dark, wet, grimy.
+   * Produces two layers: chunky mud blobs + a fine tan mist cloud.
+   *
+   * @param position   World-space contact point
+   * @param velocity   Impact speed magnitude (m/s)
+   */
+  public createMudSplash(position: BABYLON.Vector3, velocity: number): void {
+    const intensity = Math.min(velocity / 15, 1.0);
+    if (intensity < 0.15) return;
+
+    const flareUrl = 'https://playground.babylonjs.com/textures/flare.png';
+
+    // ── Chunky mud blobs ────────────────────────────────────────────────────
+    const mudPS = new BABYLON.ParticleSystem('mudBlob', Math.floor(30 * intensity), this.scene);
+    mudPS.particleTexture = new BABYLON.Texture(flareUrl, this.scene);
+    mudPS.emitter    = position.clone();
+    mudPS.minEmitBox = new BABYLON.Vector3(-0.15, 0, -0.15);
+    mudPS.maxEmitBox = new BABYLON.Vector3( 0.15, 0,  0.15);
+
+    // Dark wet mud colours
+    mudPS.color1    = new BABYLON.Color4(0.18, 0.13, 0.07, 1.0); // near-black mud
+    mudPS.color2    = new BABYLON.Color4(0.32, 0.22, 0.10, 0.9); // dark brown
+    mudPS.colorDead = new BABYLON.Color4(0.12, 0.09, 0.05, 0.0);
+
+    mudPS.minSize = 0.08 + 0.18 * intensity;
+    mudPS.maxSize = 0.22 + 0.42 * intensity;
+
+    mudPS.minLifeTime = 0.4;
+    mudPS.maxLifeTime = 1.0 + 0.5 * intensity;
+
+    mudPS.emitRate      = Math.floor(140 * intensity);
+    mudPS.minEmitPower  = 1.5 * intensity;
+    mudPS.maxEmitPower  = 4.5 * intensity;
+
+    // Wide low-arc splatter pattern – mud flings sideways, not straight up
+    mudPS.direction1 = new BABYLON.Vector3(-2.0, 0.6, -2.0);
+    mudPS.direction2 = new BABYLON.Vector3( 2.0, 2.5,  2.0);
+    mudPS.gravity    = new BABYLON.Vector3(0, -14, 0); // heavy, falls fast
+
+    mudPS.start();
+    this.activeParticleSystems.push(mudPS);
+    setTimeout(() => {
+      mudPS.stop();
+      setTimeout(() => { mudPS.dispose(); this.removeParticleSystem(mudPS); }, 1200);
+    }, 80);
+
+    // ── Fine tan mist cloud ─────────────────────────────────────────────────
+    const mistPS = new BABYLON.ParticleSystem('mudMist', Math.floor(20 * intensity), this.scene);
+    mistPS.particleTexture = new BABYLON.Texture(flareUrl, this.scene);
+    mistPS.emitter = position.clone();
+
+    mistPS.color1    = new BABYLON.Color4(0.52, 0.44, 0.32, 0.65); // dusty tan
+    mistPS.color2    = new BABYLON.Color4(0.38, 0.32, 0.22, 0.40);
+    mistPS.colorDead = new BABYLON.Color4(0.22, 0.19, 0.14, 0.00);
+
+    mistPS.minSize = 0.06;
+    mistPS.maxSize = 0.14 + 0.10 * intensity;
+
+    mistPS.minLifeTime = 0.3;
+    mistPS.maxLifeTime = 0.7;
+
+    mistPS.emitRate     = Math.floor(90 * intensity);
+    mistPS.minEmitPower = 2.0 * intensity;
+    mistPS.maxEmitPower = 5.5 * intensity;
+
+    mistPS.direction1 = new BABYLON.Vector3(-1.5, 0.5, -1.5);
+    mistPS.direction2 = new BABYLON.Vector3( 1.5, 3.2,  1.5);
+    mistPS.gravity    = new BABYLON.Vector3(0, -5, 0);
+
+    mistPS.start();
+    this.activeParticleSystems.push(mistPS);
+    setTimeout(() => {
+      mistPS.stop();
+      setTimeout(() => { mistPS.dispose(); this.removeParticleSystem(mistPS); }, 800);
+    }, 60);
   }
 
   /**
