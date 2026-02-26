@@ -480,6 +480,7 @@ export class LevelGenerator {
   private environmentManager: EnvironmentManager;
 
   private groundMesh?: BABYLON.Mesh;
+  private grassMesh?: BABYLON.Mesh;
 
   /** Current terrain height function – set after buildLevel(). */
   private currentSeed: number = 1;
@@ -535,6 +536,11 @@ export class LevelGenerator {
     if (this.groundMesh) {
       this.groundMesh.dispose();
       this.groundMesh = undefined;
+    }
+    if (this.grassMesh) {
+      if (this.grassMesh.material) this.grassMesh.material.dispose();
+      this.grassMesh.dispose();
+      this.grassMesh = undefined;
     }
     this.destructibleFactory.destroyAll();
     this.environmentManager.clear();
@@ -606,27 +612,85 @@ export class LevelGenerator {
     ground.updateVerticesData(BABYLON.VertexBuffer.NormalKind, new Float32Array(normals), true);
     ground.refreshBoundingInfo();
 
-    // PBR terrain material
+    // ── Vertex colour painting ──────────────────────────────────────────────
+    // Each vertex gets an RGBA colour determined by surface slope + height,
+    // then tinted 30 % toward the level's groundLightColor atmosphere.
+    const colorData = new Float32Array(nVertX * nVertZ * 4);
+    const { r: tintR, g: tintG, b: tintB } = layout.groundLightColor;
+
+    for (let row = 0; row < nVertZ; row++) {
+      for (let col = 0; col < nVertX; col++) {
+        const vi = row * nVertX + col;
+        const pi = vi * 3;
+        const ci = vi * 4;
+
+        const height = positions[pi + 1]; // height above TERRAIN_BASE_Y
+        const ny     = normals[pi + 1];  // surface normal Y (1 = flat, 0 = vertical)
+
+        // Per-vertex organic noise driven by seed
+        const noise = (Math.abs(Math.sin(vi * 127.1453 + seed * 311.789)) % 1) * 0.12;
+
+        let r: number, g: number, b: number;
+
+        if (height < 1.8) {
+          // Mud / waterlogged low ground – dark, wet, almost black-brown
+          r = 0.18 + noise * 0.4;
+          g = 0.13 + noise * 0.25;
+          b = 0.07;
+        } else if (ny > 0.88) {
+          // Grass – flat open areas
+          r = 0.22 + noise * 0.35;
+          g = 0.52 + noise;
+          b = 0.10 + noise * 0.35;
+        } else if (ny > 0.68) {
+          // Dirt / compacted earth – moderate slopes
+          r = 0.50 + noise;
+          g = 0.36 + noise * 0.55;
+          b = 0.18 + noise * 0.28;
+        } else {
+          // Rock / stone – steep faces
+          r = 0.44 + noise;
+          g = 0.40 + noise;
+          b = 0.36 + noise;
+        }
+
+        // Blend 70 % vertex colour + 30 % level atmosphere tint
+        const TINT = 0.30;
+        colorData[ci]     = r * (1 - TINT) + tintR * TINT;
+        colorData[ci + 1] = g * (1 - TINT) + tintG * TINT;
+        colorData[ci + 2] = b * (1 - TINT) + tintB * TINT;
+        colorData[ci + 3] = 1.0;
+      }
+    }
+
+    ground.setVerticesData(BABYLON.VertexBuffer.ColorKind, colorData, true);
+
+    // PBR terrain material – white base so vertex colours show through unmodified
     const mat = new BABYLON.PBRMetallicRoughnessMaterial('terrainMat', this.scene);
-    mat.baseColor = layout.groundLightColor;
+    mat.baseColor = new BABYLON.Color3(1, 1, 1);
     mat.metallic  = 0.0;
     mat.roughness = 0.95;
     ground.material = mat;
 
     this.groundMesh = ground;
 
+    // Build a static grass field on flat areas of this terrain
+    this.buildGrassField(layout, positions, normals, centerX, centerZ);
+
     // --- CANNON heightfield ---
-    // Build [xi][zi] height array in the same spatial order as the mesh.
-    // CANNON Heightfield data[xi][zi] → world position:
-    //   worldX = offsetX + xi * elementSize
-    //   worldZ = offsetZ + zi * elementSize
-    //   worldY = body.position.y + heights[xi][zi]
+    // cannon-es Heightfield has its height values along local Z and rows along local Y.
+    // The body needs a -90° Rx rotation so local Z → world Y (height up).
+    // After that rotation, rows run in the -world-Z direction:
+    //   world Z of row zi = offsetZ - zi * elementSize
+    // where offsetZ is the BACK edge of the terrain (TERRAIN_ORIGIN_Z + TERRAIN_DEPTH).
+    // Heights are therefore sampled at worldZ = offsetZ - zi * elementSize.
     const heights: number[][] = [];
+    const offsetZ = TERRAIN_ORIGIN_Z + TERRAIN_DEPTH;
     for (let xi = 0; xi < nVertX; xi++) {
       heights[xi] = [];
       for (let zi = 0; zi < nVertZ; zi++) {
         const worldX = TERRAIN_ORIGIN_X + xi * TERRAIN_ELEMENT_SIZE;
-        const worldZ = TERRAIN_ORIGIN_Z + zi * TERRAIN_ELEMENT_SIZE;
+        const worldZ = offsetZ - zi * TERRAIN_ELEMENT_SIZE;
         heights[xi][zi] = terrainHeightAt(worldX, worldZ, seed);
       }
     }
@@ -635,9 +699,126 @@ export class LevelGenerator {
       heights,
       TERRAIN_ELEMENT_SIZE,
       TERRAIN_ORIGIN_X,
-      TERRAIN_ORIGIN_Z,
+      offsetZ,
       TERRAIN_BASE_Y,
     );
+  }
+
+  /**
+   * Build a static grass field using a SolidParticleSystem.
+   * Grass blades appear on flat (ny > 0.87) mid-height terrain vertices.
+   * Two perpendicular plane particles per location give a cross-shaped tuft.
+   */
+  private buildGrassField(
+    layout: LevelLayout,
+    positions: Float32Array,
+    normals: number[],
+    centerX: number,
+    centerZ: number,
+  ): void {
+    const nVertX = TERRAIN_SUBDIV_X + 1;
+    const nVertZ = TERRAIN_SUBDIV_Z + 1;
+    const seed   = layout.terrainSeed;
+
+    // ── Collect qualifying positions ────────────────────────────────────────
+    type GrassCandidate = { x: number; y: number; z: number; angle: number; scale: number };
+    const candidates: GrassCandidate[] = [];
+    const MAX_GRASS = 180;
+
+    for (let row = 0; row < nVertZ && candidates.length < MAX_GRASS; row++) {
+      for (let col = 0; col < nVertX && candidates.length < MAX_GRASS; col++) {
+        const vi     = row * nVertX + col;
+        const pi     = vi * 3;
+        const height = positions[pi + 1];
+        const ny     = normals[pi + 1];
+
+        // Only flat mid-range terrain (not mud at bottom, not bare rock at peak)
+        if (ny < 0.87 || height < 2.0 || height > 9.0) continue;
+
+        // Sparse pseudo-random acceptance (~12 % of qualifying vertices)
+        const hash = Math.abs(Math.sin(vi * 127.1453 + seed * 311.789)) % 1;
+        if (hash > 0.12) continue;
+
+        const localX = -TERRAIN_WIDTH / 2 + col * TERRAIN_ELEMENT_SIZE;
+        const localZ = -TERRAIN_DEPTH / 2 + row * TERRAIN_ELEMENT_SIZE;
+        const angle  = Math.abs(Math.sin(vi * 73.1 + seed * 197.3)) * Math.PI;
+        const scale  = 0.75 + (Math.abs(Math.sin(vi * 31.7 + seed * 141.4)) % 1) * 0.55;
+
+        candidates.push({
+          x: centerX + localX,
+          y: TERRAIN_BASE_Y + height + 0.18, // just above surface
+          z: centerZ + localZ,
+          angle,
+          scale,
+        });
+      }
+    }
+
+    if (candidates.length === 0) return;
+
+    // ── Template blade mesh (thin vertical plane) ───────────────────────────
+    const blade = BABYLON.MeshBuilder.CreatePlane(
+      'grassBlade',
+      { width: 0.22, height: 0.40 },
+      this.scene,
+    );
+    blade.isVisible = false;
+
+    // ── SolidParticleSystem: 2 crossed blades per candidate ─────────────────
+    const sps = new BABYLON.SolidParticleSystem('grassSPS', this.scene, { updatable: false });
+    sps.addShape(blade, candidates.length * 2);
+    blade.dispose();
+
+    const spsMesh = sps.buildMesh();
+    spsMesh.name  = 'grassField';
+
+    // Grass material: white base colour, vertex colours supply hue variation
+    const grassMat = new BABYLON.PBRMetallicRoughnessMaterial('grassMat', this.scene);
+    grassMat.baseColor      = new BABYLON.Color3(1, 1, 1);
+    grassMat.roughness      = 0.9;
+    grassMat.metallic       = 0.0;
+    grassMat.backFaceCulling = false;
+    spsMesh.material = grassMat;
+
+    // Tint grass toward level atmosphere
+    const { r: tR, g: tG, b: tB } = layout.groundLightColor;
+
+    sps.initParticles = () => {
+      for (let i = 0; i < candidates.length; i++) {
+        const c = candidates[i];
+
+        // Green hue variation per tuft
+        const gv   = 0.40 + (Math.abs(Math.sin(i * 17.31 + seed * 83.7)) % 1) * 0.20;
+        const gcR  = Math.min(1, gv * 0.48 * (1 - 0.3) + tR * 0.3);
+        const gcG  = Math.min(1, gv        * (1 - 0.3) + tG * 0.3);
+        const gcB  = Math.min(1, gv * 0.22 * (1 - 0.3) + tB * 0.3);
+        const col  = new BABYLON.Color4(gcR, gcG, gcB, 1.0);
+
+        // Blade 0
+        const p0 = sps.particles[i * 2];
+        p0.position.x = c.x;
+        p0.position.y = c.y;
+        p0.position.z = c.z;
+        p0.rotation.y = c.angle;
+        p0.scaling.x  = p0.scaling.y = p0.scaling.z = c.scale;
+        p0.color      = col;
+
+        // Blade 1 (perpendicular cross)
+        const p1 = sps.particles[i * 2 + 1];
+        p1.position.x = c.x;
+        p1.position.y = c.y;
+        p1.position.z = c.z;
+        p1.rotation.y = c.angle + Math.PI / 2;
+        p1.scaling.x  = p1.scaling.y = p1.scaling.z = c.scale;
+        p1.color      = col;
+      }
+    };
+
+    sps.initParticles();
+    sps.setParticles();
+
+    this.grassMesh = spsMesh;
+    console.log(`LevelGenerator: grass field – ${candidates.length} tufts`);
   }
 
   private spawnObjects(layout: LevelLayout): void {
