@@ -53,14 +53,14 @@ export class UIManager {
         </div>
         <div class="hud-section">
           <div class="hud-label">COMBO</div>
-          <div id="combo-value" class="hud-value combo">0x</div>
+          <div id="combo-value" class="hud-value combo">0.0x</div>
         </div>
       </div>
 
       <div class="hud-bottom">
         <div class="hud-section">
           <div class="hud-label">TIRES</div>
-          <div id="tires-value" class="hud-value">3</div>
+          <div id="tires-value" class="hud-value">5</div>
         </div>
         <div class="hud-section">
           <div class="hud-label">TIME</div>
