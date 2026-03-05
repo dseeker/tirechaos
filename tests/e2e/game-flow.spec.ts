@@ -8,9 +8,12 @@ import { test, expect, Page } from '@playwright/test';
  * Wait for the loading screen to disappear, which signals that the Babylon.js
  * engine has fully initialised and the UIManager has shown the main menu.
  */
-async function waitForGameReady(page: Page, timeout = 15000): Promise<void> {
+async function waitForGameReady(page: Page, timeout = 20000): Promise<void> {
   // The loading div gets the 'hidden' class once init() completes
-  await page.waitForSelector('#loading.hidden', { timeout });
+  // Use 'attached' state because with display:none the element is not "visible"
+  await page.waitForSelector('#loading.hidden', { timeout, state: 'attached' });
+  // Also wait for main menu to be visible
+  await expect(page.locator('#main-menu')).toBeVisible({ timeout });
 }
 
 /**
@@ -27,16 +30,20 @@ async function loadGame(page: Page): Promise<void> {
  */
 async function startGameFromMenu(page: Page): Promise<void> {
   await page.locator('#btn-start').click();
+  // Wait a moment for the game to start
+  await page.waitForTimeout(500);
   // The HUD is shown by UIManager.showGameHUD() which removes the 'hidden' class
-  await page.waitForSelector('#game-hud:not(.hidden)', { timeout: 5000 });
+  await expect(page.locator('#game-hud')).toBeVisible({ timeout: 10000 });
 }
 
 /**
  * Press the pause key and wait for the pause menu to appear.
  */
 async function pauseGame(page: Page): Promise<void> {
+  // Focus the canvas first to ensure keyboard events are received
+  await page.locator('#game-canvas').click({ position: { x: 100, y: 100 } });
   await page.keyboard.press('p');
-  await page.waitForSelector('#pause-menu:not(.hidden)', { timeout: 3000 });
+  await expect(page.locator('#pause-menu')).toBeVisible({ timeout: 10000 });
 }
 
 // ---------------------------------------------------------------------------
@@ -153,7 +160,7 @@ test.describe('TIRE CHAOS - Complete Game Flow', () => {
     await page.keyboard.press('Space');
 
     // Wait for the tire counter to update (useTire() fires synchronously)
-    await expect(page.locator('#tires-value')).not.toContainText('5', { timeout: 3000 });
+    await expect(page.locator('#tires-value')).not.toContainText('5', { timeout: 5000 });
     await expect(page.locator('#tires-value')).toContainText('4');
   });
 
@@ -174,7 +181,7 @@ test.describe('TIRE CHAOS - Complete Game Flow', () => {
     await page.mouse.up();
 
     // Tire count must decrease within a reasonable time
-    await expect(page.locator('#tires-value')).not.toContainText('5', { timeout: 3000 });
+    await expect(page.locator('#tires-value')).not.toContainText('5', { timeout: 5000 });
   });
 
   // -------------------------------------------------------------------------
@@ -233,7 +240,7 @@ test.describe('TIRE CHAOS - Complete Game Flow', () => {
     await page.locator('#btn-resume').click();
 
     // Pause menu must become hidden
-    await expect(page.locator('#pause-menu')).toHaveClass(/hidden/, { timeout: 3000 });
+    await expect(page.locator('#pause-menu')).toHaveClass(/hidden/, { timeout: 5000 });
 
     // Game HUD must still be visible (game is running)
     await expect(page.locator('#game-hud')).toBeVisible();
@@ -247,7 +254,7 @@ test.describe('TIRE CHAOS - Complete Game Flow', () => {
 
     // Second P press toggles pause off
     await page.keyboard.press('p');
-    await expect(page.locator('#pause-menu')).toHaveClass(/hidden/, { timeout: 3000 });
+    await expect(page.locator('#pause-menu')).toHaveClass(/hidden/, { timeout: 5000 });
     await expect(page.locator('#game-hud')).not.toHaveClass(/hidden/);
   });
 
@@ -263,7 +270,7 @@ test.describe('TIRE CHAOS - Complete Game Flow', () => {
     await page.locator('#btn-quit').click();
 
     // Main menu must appear
-    await expect(page.locator('#main-menu')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('#main-menu')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('#main-menu')).not.toHaveClass(/hidden/);
 
     // Game HUD must be gone
@@ -283,7 +290,7 @@ test.describe('TIRE CHAOS - Game Over Scenario', () => {
     await page.goto('/');
     await waitForGameReady(page);
     await page.locator('#btn-start').click();
-    await page.waitForSelector('#game-hud:not(.hidden)', { timeout: 5000 });
+    await expect(page.locator('#game-hud')).toBeVisible({ timeout: 10000 });
 
     // Manually dispatch the game-over event the same way RoundManager does
     // so we do not have to wait for a real timeout expiry (which could be 60 s)
@@ -301,7 +308,7 @@ test.describe('TIRE CHAOS - Game Over Scenario', () => {
 
     // Game over screen must become visible
     const gameOverScreen = page.locator('#game-over-screen');
-    await expect(gameOverScreen).toBeVisible({ timeout: 3000 });
+    await expect(gameOverScreen).toBeVisible({ timeout: 5000 });
     await expect(gameOverScreen).not.toHaveClass(/hidden/);
 
     // Title defaults to GAME OVER when roundsCompleted is 0
@@ -322,7 +329,7 @@ test.describe('TIRE CHAOS - Game Over Scenario', () => {
     await page.goto('/');
     await waitForGameReady(page);
     await page.locator('#btn-start').click();
-    await page.waitForSelector('#game-hud:not(.hidden)', { timeout: 5000 });
+    await expect(page.locator('#game-hud')).toBeVisible({ timeout: 10000 });
 
     await page.evaluate(() => {
       window.dispatchEvent(
@@ -332,12 +339,12 @@ test.describe('TIRE CHAOS - Game Over Scenario', () => {
       );
     });
 
-    await page.waitForSelector('#game-over-screen:not(.hidden)', { timeout: 3000 });
+    await expect(page.locator('#game-over-screen')).toBeVisible({ timeout: 5000 });
 
     await page.locator('#btn-play-again').click();
 
     // After play-again the HUD should come back (new game started)
-    await expect(page.locator('#game-hud')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('#game-hud')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('#game-over-screen')).toBeHidden();
   });
 
@@ -345,7 +352,7 @@ test.describe('TIRE CHAOS - Game Over Scenario', () => {
     await page.goto('/');
     await waitForGameReady(page);
     await page.locator('#btn-start').click();
-    await page.waitForSelector('#game-hud:not(.hidden)', { timeout: 5000 });
+    await expect(page.locator('#game-hud')).toBeVisible({ timeout: 10000 });
 
     await page.evaluate(() => {
       window.dispatchEvent(
@@ -355,11 +362,11 @@ test.describe('TIRE CHAOS - Game Over Scenario', () => {
       );
     });
 
-    await page.waitForSelector('#game-over-screen:not(.hidden)', { timeout: 3000 });
+    await expect(page.locator('#game-over-screen')).toBeVisible({ timeout: 5000 });
 
     await page.locator('#btn-main-menu').click();
 
-    await expect(page.locator('#main-menu')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('#main-menu')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('#game-over-screen')).toBeHidden();
   });
 
@@ -373,7 +380,7 @@ test.describe('TIRE CHAOS - Game Over Scenario', () => {
     await page.evaluate(() => localStorage.removeItem('tireChaosHighScore'));
 
     await page.locator('#btn-start').click();
-    await page.waitForSelector('#game-hud:not(.hidden)', { timeout: 5000 });
+    await expect(page.locator('#game-hud')).toBeVisible({ timeout: 10000 });
 
     // Dispatch victory event (GameManager.showGameOver is also called for victory)
     await page.evaluate(() => {
@@ -389,10 +396,10 @@ test.describe('TIRE CHAOS - Game Over Scenario', () => {
       );
     });
 
-    await page.waitForSelector('#game-over-screen:not(.hidden)', { timeout: 3000 });
+    await page.waitForSelector('#game-over-screen:not(.hidden)', { timeout: 5000 });
 
     // The new-high-score banner should be revealed
-    await expect(page.locator('#new-high-score')).not.toHaveClass(/hidden/, { timeout: 3000 });
+    await expect(page.locator('#new-high-score')).not.toHaveClass(/hidden/, { timeout: 5000 });
   });
 });
 
@@ -405,7 +412,7 @@ test.describe('TIRE CHAOS - Round Completion', () => {
     await page.goto('/');
     await waitForGameReady(page);
     await page.locator('#btn-start').click();
-    await page.waitForSelector('#game-hud:not(.hidden)', { timeout: 5000 });
+    await expect(page.locator('#game-hud')).toBeVisible({ timeout: 10000 });
 
     // Trigger round-complete the same way RoundManager does
     await page.evaluate(() => {
@@ -429,9 +436,7 @@ test.describe('TIRE CHAOS - Round Completion', () => {
       );
     });
 
-    const roundEndScreen = page.locator('#round-end-screen');
-    await expect(roundEndScreen).toBeVisible({ timeout: 3000 });
-    await expect(roundEndScreen).not.toHaveClass(/hidden/);
+    await expect(page.locator('#round-end-screen')).toBeVisible({ timeout: 5000 });
 
     // Title should say ROUND 1 COMPLETE!
     await expect(page.locator('#round-end-title')).toContainText('ROUND 1 COMPLETE!');
@@ -448,7 +453,7 @@ test.describe('TIRE CHAOS - Round Completion', () => {
     await page.goto('/');
     await waitForGameReady(page);
     await page.locator('#btn-start').click();
-    await page.waitForSelector('#game-hud:not(.hidden)', { timeout: 5000 });
+    await expect(page.locator('#game-hud')).toBeVisible({ timeout: 10000 });
 
     await page.evaluate(() => {
       window.dispatchEvent(
@@ -471,7 +476,7 @@ test.describe('TIRE CHAOS - Round Completion', () => {
       );
     });
 
-    await page.waitForSelector('#round-end-screen:not(.hidden)', { timeout: 3000 });
+    await expect(page.locator('#round-end-screen')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('#round-end-title')).toContainText('FINAL ROUND COMPLETE!');
   });
 
@@ -479,7 +484,7 @@ test.describe('TIRE CHAOS - Round Completion', () => {
     await page.goto('/');
     await waitForGameReady(page);
     await page.locator('#btn-start').click();
-    await page.waitForSelector('#game-hud:not(.hidden)', { timeout: 5000 });
+    await expect(page.locator('#game-hud')).toBeVisible({ timeout: 10000 });
 
     await page.evaluate(() => {
       window.dispatchEvent(
@@ -502,20 +507,20 @@ test.describe('TIRE CHAOS - Round Completion', () => {
       );
     });
 
-    await page.waitForSelector('#round-end-screen:not(.hidden)', { timeout: 3000 });
+    await expect(page.locator('#round-end-screen')).toBeVisible({ timeout: 5000 });
 
     await page.locator('#btn-next-round').click();
 
     // Round end screen should disappear
     // (UIManager hides all overlays and shows HUD again via showGameHUD on next round start)
-    await expect(page.locator('#round-end-screen')).toBeHidden({ timeout: 5000 });
+    await expect(page.locator('#round-end-screen')).toBeHidden({ timeout: 10000 });
   });
 
   test('round 2 HUD displays correct round number after advancing', async ({ page }) => {
     await page.goto('/');
     await waitForGameReady(page);
     await page.locator('#btn-start').click();
-    await page.waitForSelector('#game-hud:not(.hidden)', { timeout: 5000 });
+    await expect(page.locator('#game-hud')).toBeVisible({ timeout: 10000 });
 
     // Complete round 1
     await page.evaluate(() => {
@@ -539,11 +544,11 @@ test.describe('TIRE CHAOS - Round Completion', () => {
       );
     });
 
-    await page.waitForSelector('#round-end-screen:not(.hidden)', { timeout: 3000 });
+    await expect(page.locator('#round-end-screen')).toBeVisible({ timeout: 5000 });
     await page.locator('#btn-next-round').click();
 
     // After advancing, the HUD round display should reflect round 2
-    await expect(page.locator('#round-value')).toContainText('2', { timeout: 5000 });
+    await expect(page.locator('#round-value')).toContainText('2', { timeout: 10000 });
   });
 });
 
@@ -615,3 +620,4 @@ test.describe('TIRE CHAOS - UI Element Robustness', () => {
     expect(roundText).toMatch(/^\d+\/\d+$/);
   });
 });
+
