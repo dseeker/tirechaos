@@ -448,13 +448,17 @@ export class Tire {
     this.body.velocity.set(velocity.x, velocity.y, velocity.z);
 
     // Rolling-without-slip angular velocity for a tire with axle along Z.
-    // For motion in direction (vx, 0, vz): omega = (vz/r, 0, -vx/r)
-    // This satisfies v_contact = v_center + omega × (-r_y) = 0 at the ground.
+    // The physics cylinder shape is rotated so its axle is along world Z.
+    // For rolling in direction (vx, 0, vz):
+    //   - To roll forward (+X), tire rotates around Z axis
+    //   - To roll sideways (+Z), tire would rotate around X axis
+    // Since we primarily roll downhill along X:
+    //   omega_z = -vx / r (negative for forward motion)
     const radius = this.config.properties.radius;
     this.body.angularVelocity.set(
-      velocity.z / radius,
-      0,
-      -velocity.x / radius,
+      0,                          // No rotation around X (no sideways rolling)
+      0,                          // No rotation around Y
+      -velocity.x / radius,       // Rotation around Z for forward/backward rolling
     );
 
     this.isLaunched = true;
@@ -570,19 +574,18 @@ export class Tire {
     // first bounce or terrain irregularity cannon-es friction alone cannot maintain
     // the constraint.  Apply a soft per-frame correction (blend factor 0.2) that
     // steers omega toward the no-slip target without fighting the solver abruptly.
-    // The tire axle is along world Z (rotationQuaternion = Rx(PI/2)), so:
-    //   omega_x = vz / r   (rolling in Z direction)
+    // The tire axle is along world Z (cylinder rotated Rx(-90°)), so:
     //   omega_z = -vx / r  (rolling in X direction)
+    // No rotation around X or Y for pure rolling.
     if (this.isLaunched) {
       const radius = this.config.properties.radius;
       const vx = this.body.velocity.x;
-      const vz = this.body.velocity.z;
       const blend = 0.2; // soft correction — doesn't fight the solver
-      this.body.angularVelocity.x += (vz / radius - this.body.angularVelocity.x) * blend;
+      // Only correct rotation around Z axis for forward/backward rolling
       this.body.angularVelocity.z += (-vx / radius - this.body.angularVelocity.z) * blend;
-      // Lateral yaw damping: suppress spinning around the vertical axis (tire drifting
-      // sideways like a coin wobbling).  0.85 per frame ≈ 97% removed per second at 60fps.
-      this.body.angularVelocity.y *= 0.85;
+      // Dampen any spurious rotation around X and Y (these shouldn't happen for pure rolling)
+      this.body.angularVelocity.x *= 0.9;
+      this.body.angularVelocity.y *= 0.85; // Also dampen yaw wobble
     }
 
     // Update mesh position and rotation to match physics

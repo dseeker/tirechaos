@@ -215,6 +215,7 @@ export class CameraDirector {
 
   /**
    * Update camera position, look-at, FOV, and subtle roll each frame.
+   * Includes terrain collision detection to prevent camera going through ground.
    */
   private updateFollowCamera(_deltaTime: number): void {
     if (!this.followTarget) return;
@@ -250,6 +251,32 @@ export class CameraDirector {
         targetPosition.copyFrom(this.followTarget.position);
         targetPosition.addInPlace(cfg.offset);
         break;
+    }
+
+    // ── Terrain collision detection ─────────────────────────────────────────
+    // Raycast from target to desired camera position to check for terrain
+    const rayOrigin = this.followTarget.position.clone();
+    rayOrigin.y += 0.5; // Start slightly above target center
+    const rayDirection = targetPosition.subtract(rayOrigin).normalize();
+    const rayLength = BABYLON.Vector3.Distance(rayOrigin, targetPosition);
+
+    const ray = new BABYLON.Ray(rayOrigin, rayDirection, rayLength);
+    const hit = this._scene.pickWithRay(ray, (mesh) => {
+      // Only check against terrain mesh
+      return mesh.name === 'terrain';
+    });
+
+    if (hit && hit.hit && hit.pickedPoint) {
+      // Terrain is in the way - place camera closer to target
+      const hitDistance = BABYLON.Vector3.Distance(rayOrigin, hit.pickedPoint!);
+      const safeDistance = Math.max(2, hitDistance - 0.5); // Stay 0.5m away from terrain, min 2m
+      
+      // Only adjust if the hit is between target and desired camera position
+      if (safeDistance < rayLength) {
+        targetPosition.copyFrom(rayOrigin.add(rayDirection.scale(safeDistance)));
+        // Ensure camera stays above ground
+        targetPosition.y = Math.max(targetPosition.y, hit.pickedPoint!.y + 1.0);
+      }
     }
 
     // ── Smooth camera position ──────────────────────────────────────────────

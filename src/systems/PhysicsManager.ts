@@ -54,21 +54,24 @@ export class PhysicsManager {
     const tireMaterial = new CANNON.Material('tire');
     this.tireMaterialMap.set('tire', tireMaterial);
     this.world.addContactMaterial(new CANNON.ContactMaterial(tireMaterial, this.groundMaterial, {
-      friction: 0.8,
-      restitution: 0.3,
-      contactEquationStiffness: 1e8,
-      contactEquationRelaxation: 3,
+      friction: 0.9,
+      restitution: 0.15,
+      contactEquationStiffness: 1e9,
+      contactEquationRelaxation: 4,
+      frictionEquationStiffness: 1e9,
+      frictionEquationRelaxation: 3,
     }));
 
     // Per-tire-type contact materials.
     // Values must match TIRE_CONFIGS in src/types/index.ts — friction and
     // restitution are the single source of truth for each tire type.
+    // Note: Lower restitution (0.1-0.2) for more stable rolling on terrain.
     const perTypeMaterials: Array<{ name: string; friction: number; restitution: number }> = [
-      { name: 'tire_standard',      friction: 0.8,  restitution: 0.3  },
-      { name: 'tire_monster_truck', friction: 0.9,  restitution: 0.2  },
-      { name: 'tire_racing_slick',  friction: 1.0,  restitution: 0.1  },
-      { name: 'tire_tractor',       friction: 1.2,  restitution: 0.15 },
-      { name: 'tire_spare',         friction: 0.6,  restitution: 0.6  },
+      { name: 'tire_standard',      friction: 0.9,  restitution: 0.15 },
+      { name: 'tire_monster_truck', friction: 1.0,  restitution: 0.1  },
+      { name: 'tire_racing_slick',  friction: 1.1,  restitution: 0.05 },
+      { name: 'tire_tractor',       friction: 1.3,  restitution: 0.08 },
+      { name: 'tire_spare',         friction: 0.7,  restitution: 0.4  },
     ];
 
     perTypeMaterials.forEach(({ name, friction, restitution }) => {
@@ -77,8 +80,10 @@ export class PhysicsManager {
       this.world.addContactMaterial(new CANNON.ContactMaterial(mat, this.groundMaterial, {
         friction,
         restitution,
-        contactEquationStiffness: 1e8,
-        contactEquationRelaxation: 3,
+        contactEquationStiffness: 1e9,      // Increased for more stable contact
+        contactEquationRelaxation: 4,       // Slightly more relaxation for smoother rolling
+        frictionEquationStiffness: 1e9,     // High friction stiffness for better grip
+        frictionEquationRelaxation: 3,
       }));
     });
 
@@ -228,25 +233,28 @@ export class PhysicsManager {
     // artefact on flat terrain caused by flat polygon faces contacting the surface.
     const shape = new CANNON.Cylinder(radius, radius, width, 20);
 
+    // CANNON.Cylinder is oriented along the Y axis by default.
+    // The tire mesh is rotated Rx(90°) so its axle is along Z (rolling in X direction).
+    // We must rotate the physics shape to match: rotate -90° around X to align Y->Z.
+    const q = new CANNON.Quaternion();
+    q.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+    // Transform the shape so its local Y aligns with world Z
+    // (cylinder rolls along X axis when lying on its side)
+
     const body = new CANNON.Body({
       mass: mass,
-      shape: shape,
       material: material || this.tireMaterialMap.get('tire')!,
       linearDamping: 0.1,
       angularDamping: 0.05,
     });
 
-    // Do NOT bake the rotation into the shape vertices.
-    // Instead, set the body's initial quaternion to Rx(90°) so the Y-axis
-    // cylinder is rotated to have its axis along Z in world space.
-    // This matches the Babylon mesh which also uses rotationQuaternion Rx(90°).
+    // Add shape with the rotation that makes it lie on its side (axle along Z)
+    body.addShape(shape, new CANNON.Vec3(0, 0, 0), q);
+
+    // Position matches the mesh
     body.position.set(mesh.position.x, mesh.position.y, mesh.position.z);
-    body.quaternion.set(
-      mesh.rotationQuaternion?.x ?? 0,
-      mesh.rotationQuaternion?.y ?? 0,
-      mesh.rotationQuaternion?.z ?? 0,
-      mesh.rotationQuaternion?.w ?? 1,
-    );
+    // No need to rotate the body itself - the shape rotation handles it
+    body.quaternion.set(0, 0, 0, 1);
 
     this.world.addBody(body);
     this.bodies.set(mesh, body);
