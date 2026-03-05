@@ -783,6 +783,13 @@ export class LevelGenerator {
     // Tint grass toward level atmosphere
     const { r: tR, g: tG, b: tB } = layout.groundLightColor;
 
+    // Initialize particles - check if particles array exists
+    if (!sps.particles || sps.particles.length < candidates.length * 2) {
+      console.warn('LevelGenerator: SPS particles not properly initialized, skipping grass');
+      spsMesh.dispose();
+      return;
+    }
+
     sps.initParticles = () => {
       for (let i = 0; i < candidates.length; i++) {
         const c = candidates[i];
@@ -796,6 +803,7 @@ export class LevelGenerator {
 
         // Blade 0
         const p0 = sps.particles[i * 2];
+        if (!p0) continue;
         p0.position.x = c.x;
         p0.position.y = c.y;
         p0.position.z = c.z;
@@ -805,6 +813,7 @@ export class LevelGenerator {
 
         // Blade 1 (perpendicular cross)
         const p1 = sps.particles[i * 2 + 1];
+        if (!p1) continue;
         p1.position.x = c.x;
         p1.position.y = c.y;
         p1.position.z = c.z;
