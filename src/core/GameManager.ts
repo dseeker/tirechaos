@@ -524,6 +524,12 @@ export class GameManager {
     });
 
     window.addEventListener('focus', () => {
+      // Stop any existing loops (prevents duplicates if focus fires without a
+      // preceding blur, e.g. on initial page focus in some browsers) and reset
+      // lastTime so the first rendered frame doesn't accumulate a deltaTime
+      // spike from the time spent with the window unfocused.
+      this.engine.stopRenderLoop();
+      this.lastTime = performance.now();
       this.engine.runRenderLoop(() => this.render());
     });
   }
@@ -882,7 +888,10 @@ export class GameManager {
    */
   private render(): void {
     if (this.gameState.isPaused) {
-      // Still render the scene even when paused for menu backgrounds
+      // Still render the scene even when paused for menu backgrounds.
+      // Reset lastTime so that deltaTime doesn't accumulate while paused and
+      // cause a physics jump when the game resumes.
+      this.lastTime = performance.now();
       this.scene.render();
       return;
     }
@@ -893,13 +902,14 @@ export class GameManager {
     const deltaTime = Math.min((currentTime - this.lastTime) / 1000, 0.25);
     this.lastTime = currentTime;
 
-    // Update performance manager
-    this.performanceManager.update();
-
-    // Skip frame if needed for FPS limiting
+    // Skip frame if needed for FPS limiting (check before update so that
+    // skipped frames are not counted in the FPS statistics).
     if (this.performanceManager.shouldSkipFrame()) {
       return;
     }
+
+    // Update performance manager (only for frames that are actually rendered)
+    this.performanceManager.update();
 
     // Update FPS counter
     this.frameCount++;

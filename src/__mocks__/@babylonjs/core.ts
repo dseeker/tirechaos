@@ -226,6 +226,10 @@ export class Engine {
 
   runRenderLoop(fn: () => void) {}
 
+  stopRenderLoop(fn?: () => void) {}
+
+  setHardwareScalingLevel(level: number) {}
+
   resize() {}
 
   dispose() {}
