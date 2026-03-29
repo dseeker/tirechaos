@@ -524,6 +524,7 @@ export class GameManager {
     });
 
     window.addEventListener('focus', () => {
+      this.engine.stopRenderLoop();
       this.engine.runRenderLoop(() => this.render());
     });
   }
@@ -888,18 +889,22 @@ export class GameManager {
     }
 
     const currentTime = performance.now();
+
+    // Skip frame if needed for FPS limiting (check before updating lastTime and
+    // the performance manager so that skipped frames don't consume elapsed time —
+    // the next rendered frame will see the full accumulated delta and FPS stats
+    // will reflect rendered frames only, not rAF callbacks).
+    if (this.performanceManager.shouldSkipFrame()) {
+      return;
+    }
+
     // Cap deltaTime to 250 ms so a tab-switch or debugger pause doesn't cause
     // the physics world to jump forward by many seconds in a single step.
     const deltaTime = Math.min((currentTime - this.lastTime) / 1000, 0.25);
     this.lastTime = currentTime;
 
-    // Update performance manager
+    // Update performance manager (only on rendered frames for accurate FPS stats)
     this.performanceManager.update();
-
-    // Skip frame if needed for FPS limiting
-    if (this.performanceManager.shouldSkipFrame()) {
-      return;
-    }
 
     // Update FPS counter
     this.frameCount++;
