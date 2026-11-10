@@ -22,7 +22,7 @@ jobs:
   # gets the "github-pages" environment so branch-protection rules only apply
   # to the actual deployment step, not the build.
   build:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -66,7 +66,7 @@ jobs:
   # actions/deploy-pages.
   deploy:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
