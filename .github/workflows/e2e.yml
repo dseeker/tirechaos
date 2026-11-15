@@ -4,7 +4,9 @@ on:
   # Run on PRs to catch regressions before merge
   pull_request:
     branches: [main]
-  # Allow manual trigger
+  # Full suite (incl. performance benchmarks) nightly + on demand
+  schedule:
+    - cron: '23 3 * * *'
   workflow_dispatch:
 
 jobs:
@@ -41,7 +43,13 @@ jobs:
         # serves at http://localhost:3000/ matching playwright's baseURL
 
       - name: Run E2E tests
-        run: npx playwright test --project=chromium
+        # PRs run the gameplay smoke suite only (full incl. perf benchmarks on schedule/dispatch)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            npx playwright test e2e/gameplay.spec.ts --project=chromium
+          else
+            npx playwright test --project=chromium
+          fi
         env:
           CI: 'true'
 
