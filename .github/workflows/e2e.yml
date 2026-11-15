@@ -33,7 +33,7 @@ jobs:
         run: npm install --no-save
 
       - name: Install Playwright browsers (Chromium only for CI speed)
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
 
       - name: Build project (local base path for preview server)
         run: npm run build
