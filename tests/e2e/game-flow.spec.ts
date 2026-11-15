@@ -364,6 +364,14 @@ test.describe('TIRE CHAOS - Game Over Scenario', () => {
 
     await expect(page.locator('#game-over-screen')).toBeVisible({ timeout: 5000 });
 
+    // A new high score opens the name-entry modal, which blocks the
+    // game-over screen until a name is submitted.
+    const nameEntry = page.locator('#name-entry-overlay');
+    if (await nameEntry.isVisible()) {
+      await page.locator('#name-entry-input').fill('TEST');
+      await page.locator('#name-entry-submit').click();
+    }
+
     await page.locator('#btn-main-menu').click();
 
     await expect(page.locator('#main-menu')).toBeVisible({ timeout: 10000 });

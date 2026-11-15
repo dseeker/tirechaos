@@ -105,6 +105,10 @@ export class GameManager {
 
     // Create scene
     this.scene = new BABYLON.Scene(this.engine);
+    // Babylon defaults to canceling pointerdown, which suppresses the
+    // compatibility mousedown/mousemove/mouseup events that InputHandler
+    // uses for drag-to-launch — keep the mouse event stream alive.
+    this.scene.preventDefaultOnPointerDown = false;
     this.scene.clearColor = new BABYLON.Color4(0.53, 0.81, 0.92, 1.0); // Sky blue
 
     // Expose CANNON globally for CannonJSPlugin (required in production builds)
@@ -123,7 +127,7 @@ export class GameManager {
       this.scene
     );
     this.camera.setTarget(BABYLON.Vector3.Zero());
-    this.camera.attachControl(canvas, false);
+    this.camera.attachControl(canvas, true);
     this.camera.minZ = 0.1;
     this.camera.maxZ = 1000;
     this.camera.fov = 1.2; // ~75 degrees
@@ -329,7 +333,7 @@ export class GameManager {
 
     // UI Manager event listeners
     window.addEventListener('start-game', () => this.startNewGame());
-    window.addEventListener('resume-game', () => this.resume());
+    window.addEventListener('resume-game', () => this.togglePause());
     window.addEventListener('restart-game', () => this.resetLevel());
     window.addEventListener('quit-to-menu', () => this.returnToMenu());
     window.addEventListener('next-round', () => {
@@ -342,6 +346,8 @@ export class GameManager {
         this.clearScene();
         this.loadLevelForRound(nextRoundNum);
         this.resume();
+        // Hide the round-end overlay and bring the HUD back
+        this.uiManager.showGameHUD();
       }
     });
     window.addEventListener('play-again', () => this.startNewGame());

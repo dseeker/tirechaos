@@ -43,9 +43,6 @@ export class InputHandler {
     canvas.addEventListener('touchstart', this.onTouchStart.bind(this));
     canvas.addEventListener('touchmove', this.onTouchMove.bind(this));
     canvas.addEventListener('touchend', this.onTouchEnd.bind(this));
-
-    // Keyboard shortcuts
-    window.addEventListener('keydown', this.onKeyDown.bind(this));
   }
 
   /**
@@ -125,29 +122,6 @@ export class InputHandler {
   private onTouchEnd(event: TouchEvent): void {
     event.preventDefault();
     this.onPointerUp({} as MouseEvent);
-  }
-
-  /**
-   * Handle keyboard input
-   */
-  private onKeyDown(event: KeyboardEvent): void {
-    switch (event.key.toLowerCase()) {
-      case 'r':
-        this.gameManager.resetLevel();
-        break;
-      case 'p':
-        if (this.gameManager.gameState.isPaused) {
-          this.gameManager.resume();
-        } else {
-          this.gameManager.pause();
-        }
-        break;
-      case ' ':
-        // Quick launch with default parameters
-        event.preventDefault();
-        this.gameManager.launchTire(0.8, 45);
-        break;
-    }
   }
 
   /**
@@ -295,7 +269,6 @@ export class InputHandler {
     canvas.removeEventListener('touchstart', this.onTouchStart.bind(this));
     canvas.removeEventListener('touchmove', this.onTouchMove.bind(this));
     canvas.removeEventListener('touchend', this.onTouchEnd.bind(this));
-    window.removeEventListener('keydown', this.onKeyDown.bind(this));
 
     if (this.trajectoryLine) {
       this.trajectoryLine.dispose();

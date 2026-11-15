@@ -268,8 +268,9 @@ export class LaunchControlUI {
   }
 
   /**
-   * Register arrow-key shortcuts for fine-tuning and SPACE for launching.
-   * Only acts when the UI is visible to avoid conflicts with other shortcuts.
+   * Register arrow-key shortcuts for fine-tuning power and angle.
+   * SPACE is handled solely by KeyboardManager's quick-launch shortcut
+   * (which uses these slider values), to avoid a double launch.
    */
   private setupKeyboardShortcuts(): void {
     window.addEventListener('keydown', this.keydownHandler);
@@ -297,14 +298,6 @@ export class LaunchControlUI {
       case 'ArrowLeft':
         e.preventDefault();
         this.adjustAngle(-this.ANGLE_STEP);
-        break;
-      case ' ':
-        // SPACE is also registered in KeyboardManager for quick launch.
-        // The LaunchControlUI launch uses the current slider values, so we
-        // only intercept here; KeyboardManager's callback still fires with
-        // its own hardcoded values unless the consumer wires them together.
-        e.preventDefault();
-        this.triggerLaunch();
         break;
     }
   }
